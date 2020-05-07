@@ -58,7 +58,8 @@ propensity = np.zeros(len(LHS))
 
 def propensity_calc(LHS, popul_num, stoch_rate):
     for row in range(len(LHS)):     
-            a = stoch_rate[row]        
+            a = stoch_rate[row]     
+            print("type of stoch rate:\n", type(stoch_rate[row]))   
             for i in range(len(popul_num)):   
                 if (popul_num[i] >= LHS[row, i]).all():       # seems to work --> iterates through multiple elementa      
                     # will return a new array/ value with just true or false --> How to use this further
@@ -68,6 +69,7 @@ def propensity_calc(LHS, popul_num, stoch_rate):
                     a = 0   
                     break 
             propensity[row] = a 
+            print("type of propensity:\n", type(propensity))
     return propensity.astype(float)
 
 
@@ -94,17 +96,18 @@ print("probability of reaction:\n", rxn_probability)
 
 # create new array to hold the number of reactions in the system
 # must be the same shape and size of rxn_probabiltiy for rv_discrete to work
-num_rxn = np.arange(1, rxn_probability.size + 1).reshape(rxn_probability.shape)
-print(num_rxn)      
+#num_rxn = np.arange(1, rxn_probability.size + 1).reshape(rxn_probability.shape)
+#print(num_rxn)      
 
 # SSA while loop
 while tao < tmax: 
     propensity_calc(LHS, popul_num, stoch_rate)
     a0 = sum(propensity)
-    rxn_probability = propensity / a0
-    print(rxn_probability)
-    num_rxn = np.arange(1, rxn_probability.size + 1).reshape(rxn_probability.shape)
-    if a0 < 0:     # breaks prematurely here with <= but works fine with < ????
+    rxn_probability = propensity / a0   # rxn_probability isnt updated during simulation
+    print("Sum of reaction probability:\n", sum(rxn_probability))
+    num_rxn = np.arange(rxn_probability.size)
+    print(num_rxn)
+    if a0 < 0:     
         break
     else:
         t = np.random.exponential(a0)   
@@ -114,26 +117,38 @@ while tao < tmax:
             print("total time of simulation:\n", tao)
             tao = tmax
             break
-    j = stats.rv_discrete(name="Reaction index", values=(num_rxn, rxn_probability).rvs()
-    new_tao = tao + t   # two different types of tao? One is int the other
-    print("tao:\n", tao)     
-    popul_num = popul_num + state_change_matrix[j]    # update state of system/ popul_num
-    # j = 1! When using it to index row of state_change_matrix --> always index the SECOND row! 
-    # is add SECOND row of state change matrix [1, 1, -1, 0]
-    # and not the FIRST row of state change matrix [-1, -1, 1, 0]
-    # need to iterate over whole of state change matrix ???  
+    j = stats.rv_discrete(values=(num_rxn, rxn_probability)).rvs()
+    print("j:\n", j)        # j is zero and i dont know why? 
+    tao = tao + t
+    popul_num = popul_num + state_change_matrix[j]
+    print("popul_num:\n", popul_num)
 
-    # not sampling the next reaction (j = rv_discrete...) properly
-    # therefore not updating the popul_num properly when using state_change_matrix[j]
-    print("New popul_numbers:\n", popul_num)
+
+# Plotting the output!  
+plt.plot(popul_num)      
+plt.show()
+
+# sum of reaction probability must be 1
+
+# need to change indexing/shape and size of num_rxn array so it corresponds to the other arrays used? 
+# num_rxn = np.arange(1, rxn_probability.size + 1).reshape(rxn_probability.shape)
+# ^^^Old version^^^
+
+# new discrete_random variable works for the first iteration then crashes
+
+
+
+# j = 1! When using it to index row of state_change_matrix --> always index the SECOND row! 
+# is add SECOND row of state change matrix [1, 1, -1, 0]
+# and not the FIRST row of state change matrix [-1, -1, 1, 0]
+# need to iterate over whole of state change matrix ???  
+
+# not sampling the next reaction (j = rv_discrete...) properly
+# therefore not updating the popul_num properly when using state_change_matrix[j]
  
-
-
-
- 
-    # Then error messages: ValueError: The sum of provided pk is not 1.
-    # pk = propensity/a0 --> list of probabilities that must add up to one! 
-    # Try evaluate propensity/a0 INSIDE the while loop
+# Then error messages: ValueError: The sum of provided pk is not 1.
+# pk = propensity/a0 --> list of probabilities that must add up to one! 
+# Try evaluate propensity/a0 INSIDE the while loop
 
 
 
@@ -159,9 +174,6 @@ while tao < tmax:
 # ValueError: setting an array element with a sequence.
 # ????
 
-# Plotting the output!  
-plt.plot(popul_num)      
-plt.show()
 
 
 
