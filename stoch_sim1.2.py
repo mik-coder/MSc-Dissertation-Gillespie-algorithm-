@@ -15,22 +15,22 @@ ES --> E + S == 0E + 0S + 1ES + 0P --> 1E + 1S + 0ES + 0P
 ES --> E + P == 0E + 0S + 1ES + 0P --> 1E + 0S + 0ES + 1P
 """
 # Need to initialise the discrete numbers of molecules???
-popul_num = np.array([200, 100, 0, 0])
+popul_num = np.array([700, 350, 0, 0])
 
-# need to add padding to array!
+# ratios of starting materials for each reaction 
 LHS = np.array([[1,1,0,0], [0,0,1,0], [0,0,1,0]])
 
-# each equation in the system
+# ratios of products for each reaction
 RHS = np.matrix([[0,0,1,0], [1,1,0,0], [1,0,0,1]])
 
-# Define stochastic rate parameters
+# stochastic rates of reaction
 stoch_rate = np.array([0.0016, 0.0001, 0.1])
 
 # Define the state change vector
-state_change_matrix = RHS - LHS
+state_change_array = RHS - LHS
 
 # Intitalise time variables
-tmax = 20.0         # Maximum time
+tmax = 100         # Maximum time
 tao = 0.0           # array to store the time of the reaction.
 
 def propensity_calc(LHS, popul_num, stoch_rate):
@@ -48,6 +48,7 @@ def propensity_calc(LHS, popul_num, stoch_rate):
             propensity[row] = a     # type = numpy.ndarray
     return propensity
 
+popul_num_all = [popul_num]
 
 propensity = np.zeros(len(LHS))
 while tao < tmax:
@@ -64,8 +65,13 @@ while tao < tmax:
     j = stats.rv_discrete(values=(num_rxn, rxn_probability)).rvs()
     print(tao, t)
     tao = tao + t
-    popul_num = popul_num + np.squeeze(np.asarray(state_change_matrix[j]))
+    popul_num = popul_num + np.squeeze(np.asarray(state_change_array[j]))
+    popul_num_all.append(popul_num) # popul_num_all is not defined! 
 
-# Plotting the output!
-#plt.plot(popul_num)
-#plt.show()
+
+popul_num_all = np.array(popul_num_all)
+for i, label in enumerate(['Enzyme', 'Substrate', 'Enzyme-Substrate complex', 'Product']):
+    plt.plot(popul_num_all[:, i], label=label)
+plt.legend()
+plt.tight_layout()
+plt.show()
