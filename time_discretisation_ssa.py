@@ -38,70 +38,68 @@ tmax = 20.0         # Maximum time
 tao = 0.0           # array to store the time of the reaction.
 
 
-# define a fixed time interval at the outset
-# for each reaction in LHS sample from the poisson distribution the number of reactions to fire 
-# simulate all the reactions in one go
- 
-
 # function to calcualte the propensity functions for each reaction
 def propensity_calc(LHS, popul_num, stoch_rate):
     propensity = np.zeros(len(LHS))
     for row in range(len(LHS)):
-            a = stoch_rate[row]     # type = numpy.float64
+            a = stoch_rate[row]     
             for i in range(len(popul_num)):
-                if (popul_num[i] >= LHS[row, i]):       # seems to work --> iterates through multiple elementa
-                    # will return a new array/ value with just true or false --> How to use this further
+                if (popul_num[i] >= LHS[row, i]):       
                     binom_rxn = binom(popul_num[i], LHS[row, i])
                     a = a*binom_rxn
                 else:
                     a = 0
                     break
-            propensity[row] = a     # type = numpy.ndarray
+            propensity[row] = a     
     return propensity
 
-
+print(propensity_calc(LHS, popul_num, stoch_rate))
 
 # function to sample the number of reactions that will fire
 # from a poisson random variable with parameters(propensity and delta_t) 
 
 # The defined time increment 
 # for poisson probability to work must be an integer --> why? 
-delta_t = 1.2
+delta_t = 1
 
-def t_discretisation_var():
-    # sample number of rxns to fire in given time period using poisson distribution 
-    # delta_t is the expectation interval
-    poisson_prob = np.random.poisson(propensity_calc(LHS, popul_num, stoch_rate), delta_t)
-    print(poisson_prob)
-    print(type(poisson_prob))
-    return poisson_prob
+lam = (propensity_calc(LHS, popul_num, stoch_rate)*delta_t)
 
+def t_discretisation_var(lam):
+    """ delta_t is lam parameter for np.random.poisson describes 
+    the time interval for which the reactions may or may not fire in 
+    according to the propensity functions
+    """
+    #propensity = propensity_calc(LHS, popul_num, stoch_rate)
+    # ^^^error here --> propensity is an array!^^^
+    #lam = (propensity_calc(LHS, popul_num, stoch_rate)*delta_t) # numpy.ndarray object is not callable
+    # lam is numpy.ndarray type
+    poisson_distribution = np.random.poisson(lam)
+    #print(poisson_distribution)
+    return poisson_distribution
 
-t_discretisation_var()
-# returns one integer value, not sure what it is?  
-# poisson prob is a numpy.ndarray 
-
-
-# simulate all reactions at once --> change while loop? 
-# while simulates one reaction after the other using iteration 
+ 
+print("time discretisation_var:\n", t_discretisation_var(lam))
+# produces an array of the length 3 for propensity functions of each reaction 
+# three reactions == 3 propensity functions
+# need to control which value of the array is used in the parameter lam? 
 
 
 popul_num_all = [popul_num]
 propensity = np.zeros(len(LHS))
 while tao < tmax:
-    propensity = propensity_calc(LHS, popul_num, stoch_rate)
+    propensity = propensity_calc(LHS, popul_num, stoch_rate)        # is this still necessary
     a0 = (sum(propensity))
     if a0 == 0.0:
         break
-    t = np.random.exponential(1/a0) # sample time from random exponential --> now needs to change to delta_t
-    rxn_probability = propensity / a0   # propensity = array a0 = number --> Error
-    num_rxn = np.arange(rxn_probability.size)
-    if tao + t > tmax:
-        tao = tmax
+    delta_t_rxn_prob = t_discretisation_var(lam) # probability of event happening in time period t   
+    # cannot call numpy.ndarray object lam
+    # tried to call a numpy array as a function
+    num_rxn = np.arange(delta_t_rxn_prob.size)
+    if tao + delta_t > tmax:
         break
-    j = stats.rv_discrete(values=(num_rxn, rxn_probability)).rvs()
+    j = stats.rv_discrete(values=(num_rxn, delta_t_rxn_prob)).rvs()
     #print(tao, t)
-    tao = tao + t
+    t = t + delta_t
     popul_num = popul_num + np.squeeze(np.asarray(state_change_matrix[j]))
     popul_num_all.append(popul_num)
 
@@ -111,4 +109,4 @@ for i, label in enumerate(['Enzyme', 'Substrate', 'Enzyme-Substrate complex', 'P
     plt.plot(popul_num_all[:, i], label=label)
 plt.legend()
 plt.tight_layout()
-#plt.show()
+plt.show()
