@@ -31,7 +31,8 @@ RHS = np.matrix([[0,0,1,0], [1,1,0,0], [1,0,0,1]])
 stoch_rate = np.array([0.0016, 0.0001, 0.1])
 
 # Define the state change vector
-state_change_matrix = RHS - LHS
+state_change_array = np.asarray(RHS - LHS)
+print(state_change_array)
 
 # Intitalise time variables
 tmax = 20.0         # Maximum time
@@ -55,53 +56,40 @@ def propensity_calc(LHS, popul_num, stoch_rate):
 
 print(propensity_calc(LHS, popul_num, stoch_rate))
 
-# function to sample the number of reactions that will fire
-# from a poisson random variable with parameters(propensity and delta_t) 
-
-# The defined time increment 
-# for poisson probability to work must be an integer --> why? 
-delta_t = 1
-
-lam = (propensity_calc(LHS, popul_num, stoch_rate)*delta_t)
-
-def t_discretisation_var(lam):
-    """ delta_t is lam parameter for np.random.poisson describes 
-    the time interval for which the reactions may or may not fire in 
-    according to the propensity functions
-    """
-    #propensity = propensity_calc(LHS, popul_num, stoch_rate)
-    # ^^^error here --> propensity is an array!^^^
-    #lam = (propensity_calc(LHS, popul_num, stoch_rate)*delta_t) # numpy.ndarray object is not callable
-    # lam is numpy.ndarray type
-    poisson_distribution = np.random.poisson(lam)
-    #print(poisson_distribution)
-    return poisson_distribution
-
- 
-print("time discretisation_var:\n", t_discretisation_var(lam))
-# produces an array of the length 3 for propensity functions of each reaction 
-# three reactions == 3 propensity functions
-# need to control which value of the array is used in the parameter lam? 
 
 
+# outcome of algorithm step 2: 
+# reaction vector, r --> The number of reactions in the model
+#   simulate the reaction vector with the ith entry of the poisson distribution
+# A state change vector A = R - L <-- already in code
+delta_t = 1.3
 popul_num_all = [popul_num]
 propensity = np.zeros(len(LHS))
+
+
 while tao < tmax:
-    propensity = propensity_calc(LHS, popul_num, stoch_rate)        # is this still necessary
+    propensity = propensity_calc(LHS, popul_num, stoch_rate)        
     a0 = (sum(propensity))
     if a0 == 0.0:
         break
-    delta_t_rxn_prob = t_discretisation_var(lam) # probability of event happening in time period t   
-    # cannot call numpy.ndarray object lam
-    # tried to call a numpy array as a function
-    num_rxn = np.arange(delta_t_rxn_prob.size)
+    lam = (propensity_calc(LHS, popul_num, stoch_rate)*delta_t)
+    rxn_vector = np.random.poisson(lam)  # number of reactions that can fire in time step delta_t
+    print("reaction vector:\n", rxn_vector)     
     if tao + delta_t > tmax:
         break
-    j = stats.rv_discrete(values=(num_rxn, delta_t_rxn_prob)).rvs()
     #print(tao, t)
-    t = t + delta_t
-    popul_num = popul_num + np.squeeze(np.asarray(state_change_matrix[j]))
-    popul_num_all.append(popul_num)
+    tao += delta_t
+    for row in range(len(state_change_array)):
+        for j in range(len(rxn_vector)):
+            popul_num = popul_num + np.squeeze(np.asarray(row*j))
+    # Use indicies not axis to avoid ValueError --> a.any()! 
+    # state_change_array*rxn_vector[:,None]
+    # # use for loop to iterate through each element of state_change_array?  
+    print(popul_num)
+    popul_num_all.append(popul_num) 
+
+
+
 
 
 popul_num_all = np.array(popul_num_all)
