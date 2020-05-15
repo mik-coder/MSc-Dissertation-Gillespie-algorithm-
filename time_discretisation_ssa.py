@@ -74,22 +74,23 @@ while tao < tmax:
         break
     lam = (propensity_calc(LHS, popul_num, stoch_rate)*delta_t)
     rxn_vector = np.random.poisson(lam)  # number of reactions that can fire in time step delta_t
-    print("reaction vector:\n", rxn_vector)     
+    #print("reaction vector:\n", rxn_vector)     
     if tao + delta_t > tmax:
         break
-    #print(tao, t)
     tao += delta_t
     for row in range(len(state_change_array)):
         for j in range(len(rxn_vector)):
-            popul_num = popul_num + np.squeeze(np.asarray(row*j))
-    # Use indicies not axis to avoid ValueError --> a.any()! 
-    # state_change_array*rxn_vector[:,None]
-    # # use for loop to iterate through each element of state_change_array?  
-    print(popul_num)
+            popul_num = popul_num + np.squeeze(np.asarray(row*j)) 
+    print(popul_num, tao)
+    # population numbers of Enzyme and substrate are going up! 
+    # ^^^ That is wrong^^^
     popul_num_all.append(popul_num) 
 
+# what happens to the Enzyme-substrate complex? Doesn't print 
+# Is multiplication right?  
 
-
+# creates straight line graphs that only increase! 
+# wrong! 
 
 
 popul_num_all = np.array(popul_num_all)
