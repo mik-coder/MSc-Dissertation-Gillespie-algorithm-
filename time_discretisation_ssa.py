@@ -32,10 +32,9 @@ stoch_rate = np.array([0.0016, 0.0001, 0.1])
 
 # Define the state change vector
 state_change_array = np.asarray(RHS - LHS)
-print(state_change_array)
 
 # Intitalise time variables
-tmax = 20.0         # Maximum time
+tmax = 100.0         # Maximum time
 tao = 0.0           # array to store the time of the reaction.
 
 
@@ -58,13 +57,12 @@ print(propensity_calc(LHS, popul_num, stoch_rate))
 
 
 
-# outcome of algorithm step 2: 
-# reaction vector, r --> The number of reactions in the model
-#   simulate the reaction vector with the ith entry of the poisson distribution
-# A state change vector A = R - L <-- already in code
-delta_t = 1.3
+# Time discretisation method
+
+delta_t = 0.01
 popul_num_all = [popul_num]
 propensity = np.zeros(len(LHS))
+rxn_vector = np.zeros(len(LHS))  
 
 
 while tao < tmax:
@@ -72,23 +70,17 @@ while tao < tmax:
     a0 = (sum(propensity))
     if a0 == 0.0:
         break
+    # if reaction cannot fire corresponding element in rxn_vector should be zero --> tau leaping method 
     lam = (propensity_calc(LHS, popul_num, stoch_rate)*delta_t)
-    rxn_vector = np.random.poisson(lam)  # number of reactions that can fire in time step delta_t
-    print("reaction vector:\n", rxn_vector)     
+    rxn_vector = np.random.poisson(lam)    
     if tao + delta_t > tmax:
         break
-    #print(tao, t)
-    tao += delta_t
-    for row in range(len(state_change_array)):
-        for j in range(len(rxn_vector)):
-            popul_num = popul_num + np.squeeze(np.asarray(row*j))
-    # Use indicies not axis to avoid ValueError --> a.any()! 
-    # state_change_array*rxn_vector[:,None]
-    # # use for loop to iterate through each element of state_change_array?  
-    print(popul_num)
+    tao += delta_t  
+    for j in range(len(rxn_vector)):
+        popul_num = popul_num + np.squeeze(np.asarray(state_change_array[j])*rxn_vector[j]) 
+    if popul_num.any() < 0:
+        break       # check if any num in popul_num is negative must stop simulation and reject leap
     popul_num_all.append(popul_num) 
-
-
 
 
 
