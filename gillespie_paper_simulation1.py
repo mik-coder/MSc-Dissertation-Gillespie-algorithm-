@@ -96,20 +96,27 @@ while tao < tmax:
                 if propensity_check - new_propensity >= epsi*a0:  
                     print("The value of delta_t {} choosen is too large".format(delta_t))
                     break
-                    else:
+                else:
                     # check if any num in popul_num is negative must stop simulation and reject leap
                     if popul_num.any() < 0:
                         break   
-                    popul_num_all.append(popul_num)     
+                    popul_num_all.append(popul_num)   
+    else:
+        t = np.random.exponential(1/a0)
+        rxn_probability = propensity / a0   
+        num_rxn = np.arange(rxn_probability.size)       
+        if tao + t > tmax:      # name error --> t not defined
+            tao = tmax
+            break
+        j = stats.rv_discrete(values=(num_rxn, rxn_probability)).rvs()
+        # sampling next reaction j --> something here to ensure 100,000 reactions are simulated/sampled? 
+        tao = tao + t
+        popul_num = popul_num + np.squeeze(np.asarray(state_change_array[j]))   # add state change array for that reaction!
+        print("Simulation time:\n", t, tao)
+        popul_num_all.append(popul_num) 
 
-
-
-
-# use functions to tidey-up code? 
 
 print("Number of leaps, tao, in simulation:\n", leap_counter) 
-
-# Include conditional to use the exact SSA if the value of tao is small enough! 
 
 
 popul_num_all = np.array(popul_num_all)
