@@ -25,16 +25,17 @@ popul_num = np.array([1.0E5, 0, 0])
 LHS = np.array([[1, 0, 0], [2, 0, 0], [0, 1, 0], [0, 1, 0]])
 
 # ratios of products for each reaction
-RHS = np.matrix([[0, 0, 0], [0, 1, 0], [2, 0, 0], [0, 0, 1]])
+RHS = np.array([[0, 0, 0], [0, 1, 0], [2, 0, 0], [0, 0, 1]])
 
 # stochastic rates of reaction
 stoch_rate = np.array([1.0, 0.002, 0.5, 0.04])
 
 # Define the state change vector
-state_change_array = RHS - LHS     
+state_change_array = np.asarray(RHS - LHS)  
+print("State change array", state_change_array)   
 
 # Intitalise time variables
-tmax = 20.0         # Maximum time
+tmax = 30.0         # Maximum time
 tao = 0.0           # array to store the time of the reaction.
 
 def propensity_calc(LHS, popul_num, stoch_rate):
@@ -65,22 +66,28 @@ while tao < tmax:
     if tao + t > tmax:
         tao = tmax
         break
-    j = stats.rv_discrete(values=(num_rxn, rxn_probability)).rvs()
-    # sampling next reaction j --> something here to ensure 100,000 reactions are simulated/sampled? 
+    j = stats.rv_discrete(values=(num_rxn, rxn_probability)).rvs() 
     tao = tao + t
     popul_num = popul_num + np.squeeze(np.asarray(state_change_array[j]))   # add state change array for that reaction!
     print("Population numbers:\n", popul_num)
     print("Simulation time:\n", t, tao)
     popul_num_all.append(popul_num) 
 
-# How to ensure that 100,000 reactions are simulated
-# That a state is plotted only after every 800 reactions? 
+# doesn't plot the RIGHT thing! 
+# plots U decreasing!  
 
 popul_num_all = np.array(popul_num_all)
 
 
 for i, label in enumerate(['S', 'T', 'U']):
-    plt.plot(popul_num_all[i], label=label)   # removing the [i] index plots a LINEAR decay --> Gillespie plot is a CURVED decay
+    plt.plot(popul_num_all[:, i], label=label)   # removing the [i] index plots a LINEAR decay --> Gillespie plot is a CURVED decay
 plt.legend()
 plt.tight_layout()
 plt.show()
+
+# with popul_num[i] shows all three species being used at the same rate??? 
+# without ledgend shows three lines for each species but only the values of U are plotted? 
+
+# three lines for each speicies but only plots the ones assigned U 
+# Plotted lines for U aren't right --> show it being used up or not produced!  
+# 
