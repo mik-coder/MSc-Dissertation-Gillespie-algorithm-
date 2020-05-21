@@ -80,8 +80,6 @@ while tao < tmax:
         break   # if reaction cannot fire corresponding element in rxn_vector should be zero --> tau leaping method 
     lam = (propensity_calc(LHS, popul_num, stoch_rate)*delta_t)  
     rxn_vector = np.random.poisson(lam)
-    # ^^^ rxn_vector length = 4    
-    print("rxn_vector length:\n", rxn_vector)
     if tao + delta_t > tmax:
         break
     tao += delta_t  # divide tao by delta_t to calculate number of leaps
@@ -91,27 +89,17 @@ while tao < tmax:
     else:   
         if tao >= 2/a0:     
             for j in range(len(rxn_vector)): 
-                state_change_lambda = np.squeeze(np.asarray(state_change_array[j])*rxn_vector[j]) # shape (3,) and length = 3 
-                # IndexError: index 3 is out of bounds for axis 1 with length 3
-                print("state change lambda:\n", len(state_change_lambda))
-                # state change lambda --> change in the number of molecules after each reaction is fired --> len = 3 
-                # state change lambda needs to be length four! This is where my problem is! 
-                # rxn_vector is length 4!  
-                popul_num = popul_num + state_change_lambda
-            new_propensity = propensity_calc(LHS, popul_num, stoch_rate) # shape = (4,)   
-            for m in range(len(propensity)):
-                for n in range(len(new_propensity)):
-                    # remove one of the nested for loops --> which one? 
-                    # both propensity and new_propensity have len = 4 
-                    propensity_check = propensity[m] + state_change_lambda # shape = (3,) len = 3
-                    print("propensity_check:\n", len(propensity_check))
-                    # propensity is len/shape = 4/(4,) 
-                    # state change lambda and therefore propensity_check are len/shape = 3/(3,)
-                    # the longer is fitted to the shorter for propensity check --> this is the Error
-                    # state_change_lambda is the problem --> shorter length --> ONLY THREE MOLECULE TYPES IN SYSTEM!
-                    if propensity_check[m] - new_propensity[n] >= epsi*a0:  # IndexError: index 3 is out of bounds for axis zero with size 3
-                        print("The value of delta_t {} choosen is too large".format(delta_t))
-                        break                    
+                state_change_lambda = np.squeeze(np.asarray(state_change_array[j])*rxn_vector[j]) 
+            new_propensity = propensity_calc(LHS, popul_num, stoch_rate)  
+            propensity_check = propensity.copy()
+            propensity_check[0] += state_change_lambda[0]
+            propensity_check[1:] += state_change_lambda 
+            leap_check = propensity_check - new_propensity
+            for n in range(len(leap_check)):
+                if leap_check[n] >= epsi*a0:  
+                    print("The value of delta_t {} choosen is too large".format(delta_t))
+                    break  
+            popul_num = popul_num + state_change_lambda                  
             popul_num_all.append(popul_num)   
         else:
             t = np.random.exponential(1/a0)
@@ -127,8 +115,12 @@ while tao < tmax:
             popul_num_all.append(popul_num) 
 
 
-# Dont know if it's going into the if statement or not??? 
-# How can I check it works properly? 
+# Runs but the plotting isnt right! 
+# Only plots S and U as constant values 
+# As if no reaction is happening!
+# problem sampling reactions and updating the system! 
+
+# first check indentation --> and updating popul_num_all!
 
 
 print("Number of leaps, tao, in simulation:\n", leap_counter) 
