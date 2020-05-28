@@ -10,8 +10,34 @@ import scipy
 from scipy.special import binom
 from scipy import stats
 from matplotlib import pyplot as plt # allow inline plot with %matplotlib inline
+import time
 
-# tau-leaping SSA variant  
+# tau-leaping SSA variant 
+# Class for starting the timer
+
+class TimeError(Exception):
+    """A custom exception used to report errors in use of Timer Class""" 
+
+class simulation_timer: 
+    def __init__(self):
+        self._simulation_start_time = None
+        self._simulation_stop_time = None
+
+    def start(self):
+        """start a new timer"""
+        if self._simulation_start_time is not None:    # attribute
+            raise TimeError(f"Timer is running.\n Use .stop() to stop it")
+
+        self._simulation_start_time = time.perf_counter()  
+    def stop(self):
+        """stop the time and report the elsaped time"""
+        if self._simulation_start_time is None:
+            raise TimeError(f"Timer is not running.\n Use .start() to start it.")
+
+        self._simulation_stop_time = time.perf_counter()
+        elasped_simulation_time = self._simulation_stop_time - self._simulation_start_time  
+        self._simulation_start_time = None
+        print(f"Elasped time: {elasped_simulation_time:0.4f} seconds")
 
 # System of equations
 # stochiometric equation needs to have equal length! 
@@ -41,7 +67,7 @@ print("State change array:\n", state_change_array)
 # 
 
 # Intitalise time variables
-tmax = 30.0         # Maximum time
+tmax = 5.0         # Maximum time
 tao = 0.0           # array to store the time of the reaction.
 
 
@@ -60,109 +86,87 @@ def propensity_calc(LHS, popul_num, stoch_rate):
             propensity[row] = a     
     return propensity
 
-print("propensity_calc:\n", (propensity_calc(LHS, popul_num, stoch_rate).shape))
+# Tau-leaping while-loop method
 
-
-
-# Tau-leaping  method
-
-delta_t = 0.0012
+delta_t = 1.2E-4
 epsi = 0.03
 popul_num_all = [popul_num]
+tao_all = [tao]
 propensity = np.zeros(len(LHS))
 rxn_vector = np.zeros(len(LHS))  
 
-
-while tao < tmax:
-    propensity = propensity_calc(LHS, popul_num, stoch_rate)        
-    a0 = (sum(propensity))  # a0 is a numpy.float64
+def gillespie_tau_leaping(propensity_calc, popul_num, popul_num_all, tao_all, rxn_vector, tao, delta_t, epsi):
+    t = simulation_timer()
+    t.start()
+    while tao < tmax:
+        propensity = propensity_calc(LHS, popul_num, stoch_rate)        
+        a0 = (sum(propensity))  # a0 is a numpy.float64
+        if a0 == 0.0: 
+            break   
+        if popul_num.any() < 0: # This isnt working
+            print("Number of molecules {} is too small for reaction to fire".format(popul_num))
+            break
+        lam = (propensity_calc(LHS, popul_num, stoch_rate)*delta_t) 
+        rxn_vector = np.random.poisson(lam) # probability of a reaction firing in the given time period    
+        if tao + delta_t > tmax:
+            break    
+        else:   # otherwise...
+            tao += delta_t 
+            if tao >= 2/a0:     # if tao is big enough
+                for j in range(len(rxn_vector)):  
+                    state_change_lambda = np.squeeze(np.asarray(state_change_array[j])*rxn_vector[j])   
+                    new_propensity = propensity_calc(LHS, popul_num, stoch_rate)
+                    propensity_check = propensity.copy()
+                    propensity_check[0] += state_change_lambda[0]
+                    propensity_check[1:] += state_change_lambda  
+                    for n in range(len(propensity_check)): 
+                        if propensity_check[n] - new_propensity[n] >= epsi*a0:   
+                            print("The value of delta_t {} choosen is too large".format(delta_t))
+                            break  
+                        else:
+                            popul_num = popul_num + state_change_lambda                  
+                            popul_num_all.append(popul_num)
+                            tao_all.append(tao) 
+            else:
+                t = np.random.exponential(1/a0)
+                rxn_probability = propensity / a0   
+                num_rxn = np.arange(rxn_probability.size)       
+                if tao + t > tmax:      
+                    tao = tmax
+                    break
+                j = stats.rv_discrete(values=(num_rxn, rxn_probability)).rvs() 
+                tao = tao + t
+                popul_num = popul_num + np.squeeze(np.asarray(state_change_array[j]))  
+                popul_num_all.append(popul_num)   
+                tao_all.append(tao)
+        leap_counter = tao / delta_t    # divide tao by delta_t to calculate number of leaps
+    print("tao:\n", tao)
     print("Molecule numbers:\n", popul_num)
-    if a0 == 0.0:
-        print("sum propensity:\n", a0)
-        # after one iteration propensity goes to zero and code breaks! 
-        break   
-    if popul_num.any() < 0: # This isnt working
-        print("Number of molecules {} is too small for reaction to fire".format(popul_num))
-        break
-    lam = (propensity_calc(LHS, popul_num, stoch_rate)*delta_t) 
-    rxn_vector = np.random.poisson(lam) # probability of a reaction firing in the given time period    
-    if tao + delta_t > tmax:
-        break    
-    else:   # otherwise...
-        tao += delta_t 
-        if tao >= 2/a0:     # if tao is big enough
-            for j in range(len(rxn_vector)):  
-                state_change_lambda = np.squeeze(np.asarray(state_change_array[j])*rxn_vector[j]) 
-                new_propensity = propensity_calc(LHS, popul_num, stoch_rate)  # Do I actually need this! 
-                propensity_check = propensity.copy()
-                propensity_check[0] += state_change_lambda[0]
-                propensity_check[1:] += state_change_lambda 
-                #leap_check = propensity_check - new_propensity
-                for n in range(len(propensity_check)): # post leap propensity check
-                    if propensity_check[n] - new_propensity[n] >= epsi*a0:   # should it just be propensity_check - propensity NOT new_propensity
-                        print("The value of delta_t {} choosen is too large".format(delta_t))
-                        # made delta_t SIGNIFICANTLY smaller and it enters the if statement!
-                        break  
-                    else:
-                        popul_num = popul_num + state_change_lambda                  
-                        popul_num_all.append(popul_num) # indentation of this determines how far x-axis goes? 
-        else:
-            t = np.random.exponential(1/a0)
-            rxn_probability = propensity / a0   
-            num_rxn = np.arange(rxn_probability.size)       
-            if tao + t > tmax:      
-                tao = tmax
-                break
-            j = stats.rv_discrete(values=(num_rxn, rxn_probability)).rvs() 
-            tao = tao + t
-            popul_num = popul_num + np.squeeze(np.asarray(state_change_array[j]))  
-            print("Simulation time:\n", t, tao)
-            popul_num_all.append(popul_num)   
-    leap_counter = tao / delta_t    # divide tao by delta_t to calculate number of leaps
+    t.stop()
+    return popul_num_all.append(popul_num), tao_all.append(tao), leap_counter
 
 
-# delta_t is very sensitive! 
-# try and match parameters in the paper! 
+print(gillespie_tau_leaping(propensity_calc, popul_num, popul_num_all, tao_all, rxn_vector, tao, delta_t, epsi))
 
-print("Molecule numbers:\n", popul_num)
-print("Number of leaps, tao, in simulation:\n", leap_counter) 
-# ^^^ Not sure if this is the correct way to calculate the number of leaps. 
-print("tao:\n", tao)
+
+
 
 popul_num_all = np.array(popul_num_all)
+tao_all = np.array(tao_all)
 fig, (ax1, ax2) = plt.subplots(1, 2)
 
-ax1.plot(popul_num_all[:, 0], label='S', color= 'Green')
+ax1.plot(tao_all, popul_num_all[:, 0], label='S', color= 'Green')
 ax1.legend()
 
 for i, label in enumerate(['T', 'U']):
-    ax2.plot(popul_num_all[:, i+1], label=label)
+    ax2.plot(tao_all, popul_num_all[:, i+1], label=label)
 
 ax2.legend()
 plt.tight_layout()
 plt.show()
 
 
-
-
-
-#for i, label in enumerate(['S']):
-#    plt.plot(popul_num_all[:, i], label=label)
-#plt.legend()
-#plt.tight_layout()
-#plt.show()
-# ^^^ plots S properly on a separate plot
-
-
-#for n, label_TU in enumerate(['T', 'U']):
-#    plt.plot(popul_num_all[:, i], label= label_TU)
-# Dont think the indexing of popul_num[:, i] works properly...
-#plt.legend()
-#plt.tight_layout()
-#plt.show()
-
-
-# Need to plot S on one graph and T and V on anthor
+# fix tao for all of them! 
 
 
 # JOB FOR ANOTHER DAY! 
