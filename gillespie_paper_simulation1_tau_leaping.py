@@ -53,7 +53,7 @@ popul_num = np.array([1.0E5])
 LHS = np.array([1])
 
 # ratios of products for each reaction
-RHS = np.matrix([0])
+RHS = np.array([0])
 
 # stochastic rates of reaction
 stoch_rate = np.array([1.0])
@@ -82,13 +82,38 @@ def propensity_calc(LHS, popul_num, stoch_rate):
     return propensity
 
 # Tau-leaping  method
-
-delta_t = 0.1
 epsi = 0.03
 popul_num_all = [popul_num]
 tao_all = [tao]
 propensity = np.zeros(len(LHS))
 rxn_vector = np.zeros(len(LHS))  
+
+
+# Need an ad-hoc model specific determination of delta_t 
+"""from the binomial formula: [x(x - 1) / 1!] + 1 where x is the number of molecules 
+This is exanded to: x^2 - x + 1 
+This is then differentiatied to: 2x - 1 
+The molecule numbers are substituted in for x to give: 199999 """
+
+# define a function to calcualte the value best value of delta_t
+def time_step_count(propensity_calc, state_change_array, epsi): 
+    evaluate_propensity = propensity_calc(LHS, popul_num, stoch_rate) 
+    a0 = sum(evaluate_propensity)
+    # equation 22:   
+    exptd_state_change = sum(evaluate_propensity*state_change_array)  
+    # TypeError: numpy.float64 is not iterable
+    # Both are numpy.ndarray --> why the error?
+    # equation 24: 
+    bj = evaluate_propensity / 199999
+    # equation 26: 
+    delta_t = ((epsi*a0)/abs(exptd_state_change*bj))
+    print("The calculated value of delta_t:\n", delta_t)
+    return delta_t
+
+
+
+delta_t = time_step_count(propensity_calc, state_change_array, epsi)
+
 
 def gillespie_tau_leaping(propensity_calc, popul_num, popul_num_all, tao_all, rxn_vector, tao, delta_t, epsi):
     t = simulation_timer()
@@ -107,10 +132,7 @@ def gillespie_tau_leaping(propensity_calc, popul_num, popul_num_all, tao_all, rx
         if tao + delta_t > tmax:
             break
         tao += delta_t
-        print("tao:\n", tao)
-        print("Molecule numbers:\n", popul_num)
-        # divide tao by delta_t to calculate number of leaps
-        leap_counter = tao / delta_t   
+        # divide tao by delta_t to calculate number of leaps  
         if tao >= 2/a0:     
             for j in range(len(rxn_vector)):
                 state_change_lambda = np.squeeze(np.asarray(state_change_array[j])*rxn_vector[j]) 
@@ -135,9 +157,16 @@ def gillespie_tau_leaping(propensity_calc, popul_num, popul_num_all, tao_all, rx
             j = stats.rv_discrete(values=(num_rxn, rxn_probability)).rvs()
             tao = tao + next_t
             popul_num = popul_num + np.squeeze(np.asarray(state_change_array[j]))   
+    print("tao:\n", tao)
+    print("Molecule numbers:\n", popul_num)
+    leap_counter = tao / delta_t 
+    print("Number of leaps taken:\n", leap_counter)
     t.stop()
-    return popul_num_all.append(popul_num), tao_all.append(tao), leap_counter
+    return popul_num_all.append(popul_num), tao_all.append(tao)
 
+
+# RUNS!!!
+# leap_output not quite right 
  
 print(gillespie_tau_leaping(propensity_calc, popul_num, popul_num_all, tao_all, rxn_vector, tao, delta_t, epsi))
 
