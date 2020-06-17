@@ -37,7 +37,7 @@ class simulation_timer:
         self._simulation_stop_time = time.perf_counter()
         elasped_simulation_time = self._simulation_stop_time - self._simulation_start_time  
         self._simulation_start_time = None
-        print(f"Elasped time: {elasped_simulation_time:0.4f} seconds")
+        print(f"Elasped time: {elapsed_simulation_time:0.4f} seconds")
 
 # System of equations
 # stochiometric equation needs to have equal length! 
@@ -67,7 +67,7 @@ print("State change array:\n", state_change_array)
 # 
 
 # Intitalise time variables
-tmax = 20.0         # Maximum time
+tmax = 30.0         # Maximum time
 tao = 0.0           # array to store the time of the reaction.
 
 
@@ -79,22 +79,15 @@ def propensity_calc(LHS, popul_num, stoch_rate):
             for i in range(len(popul_num)):
                 if (popul_num[i] >= LHS[row, i]):       
                     binom_rxn = binom(popul_num[i], LHS[row, i])
-                    aj = a*binom_rxn
+                    a = a*binom_rxn
                 else:
-                    aj = 0
+                    a = 0
                     break
-            propensity[row] = aj    
+            propensity[row] = a   
     return propensity
 
 
-epsi = 0.03
-popul_num_all = [popul_num]
-tao_all = [tao]
-propensity = np.zeros(len(LHS))
-rxn_vector = np.zeros(len(LHS))  
-a0 = sum(propensity)
 
- 
 def update_matrix(popul_num, stoch_rate): 
     """Specific to this model 
     will need to change if different model 
@@ -104,20 +97,24 @@ def update_matrix(popul_num, stoch_rate):
 b = update_matrix(popul_num, stoch_rate)
 
 
+epsi = 0.03
+
 def time_step_calc(propensity_calc, state_change_array, b, epsi):
     """ Function to calculate the simulation 
     time increment delta_t"""
-    evaluate_propensity = propensity_calc(LHS, popul_num, stoch_rate) 
-    denominator = np.zeros(len(evaluate_propensity))
-    a0 = sum(evaluate_propensity)
+    propensity = propensity_calc(LHS, popul_num, stoch_rate) 
+    print("time_step_calc propensity:\n", propensity)
+    denominator = np.zeros(len(propensity))
+    a0 = sum(propensity)
     # equation 22:
     exptd_state_array = 0.0
-    for x in range(len(evaluate_propensity)):
-        exptd_state_array +=  evaluate_propensity[x]*state_change_array[x]
+    for x in range(len(propensity)):
+        exptd_state_array +=  propensity[x]*state_change_array[x]
+        # expected states for first two reactions are very large
     print("expectd state array:\n", exptd_state_array) 
     # equation 24: Calculated ad-hoc results in bji matrix
     numerator = epsi*a0 
-    for j in range(len(evaluate_propensity)):
+    for j in range(len(propensity)):
         for i in range(len(popul_num)):
             denominator[j] += (exptd_state_array[i]*b[j, i])
     # equation 26
@@ -131,57 +128,59 @@ delta_t = time_step_calc(propensity_calc, state_change_array, b, epsi)
 
 
 # Tau-leaping while-loop method
+popul_num_all = [popul_num]
+tao_all = [tao]
+propensity = np.zeros(len(LHS))
+rxn_vector = np.zeros(len(LHS))  
+a0 = sum(propensity)
 
-
-def gillespie_tau_leaping(propensity_calc, popul_num, popul_num_all, tao_all, rxn_vector, delta_t, tao, epsi):
+def gillespie_tau_leaping(propensity_calc, popul_num, LHS, stoch_rate, popul_num_all, tao_all, rxn_vector, delta_t, tao, epsi):
     t = simulation_timer()
     t.start()
+    leap_counter = 0
     while tao < tmax:
-        evaluate_propensity = propensity_calc(LHS, popul_num, stoch_rate)     
-        a0 = (sum(evaluate_propensity))  # a0 is a numpy.float64 
-        if a0 == 0.0:      
+        propensity = propensity_calc(LHS, popul_num, stoch_rate)    
+        a0 = (sum(propensity))  
+        if a0 == 0.0:  
+            print("Propensity sum is zero end execution")   
             break   
-        if popul_num.any() < 0:      # Not working!
-            break    
-        lam = (evaluate_propensity*delta_t)     # still uses evaluate propensity? 
-        rxn_vector = np.random.poisson(lam) # probability of a reaction firing in the given time period
-        #print("reaction vector:\n", rxn_vector)
+        if popul_num.any() < 0:       
+            print("Molecules numbers below zero end execution")
+            break
+        lam = (propensity_calc(LHS, popul_num, stoch_rate)*delta_t)    
+        rxn_vector = np.random.poisson(lam) 
         if tao + delta_t > tmax:
             break    
-        tao += delta_t 
-        leap_count = tao / delta_t
-        # Calculate the number of leaps      
-        # Not even doing the tao-leap variant! Goes straight to the exact ssa
-        if delta_t >= 1/ a0:
+        tao += delta_t  
+        if delta_t >= 1 / a0:
             for j in range(len(rxn_vector)):  
                 state_change_lambda = np.squeeze(np.asarray(state_change_array[j])*rxn_vector[j]) 
-                #print("state_change_lambda:\n", state_change_lambda)
-                # only doing the first reaction ? Is it updating the system?  
-            popul_num = popul_num + state_change_lambda                
+                popul_num = popul_num + state_change_lambda       
+            leap_counter += 1 
             popul_num_all.append(popul_num)
             tao_all.append(tao) 
-            print("Leap count:\n", leap_count)
-        else:
+        else:   # else execute the ssa because it's faster
             next_t = np.random.exponential(1/a0)
-            rxn_probability = evaluate_propensity / a0   
+            rxn_probability = propensity / a0   
             num_rxn = np.arange(rxn_probability.size)       
             if tao + next_t > tmax:      
                 tao = tmax
                 break
-            j = stats.rv_discrete(values=(num_rxn, rxn_probability)).rvs() # sum of pk provided is not 1?!
+            j = stats.rv_discrete(values=(num_rxn, rxn_probability)).rvs() 
             tao = tao + next_t
             popul_num = popul_num + np.squeeze(np.asarray(state_change_array[j]))  
             popul_num_all.append(popul_num)   
-            tao_all.append(tao)    
+            tao_all.append(tao)  
     print("Molecule numbers:\n", popul_num)
     print("Time of final simulation:\n", tao)
+    print("leap counter:\n", leap_counter)
     t.stop()
-    return popul_num_all.append(popul_num), tao_all.append(tao)
+    return popul_num_all.append(popul_num), tao_all.append(tao), popul_num
 
 
-print(gillespie_tau_leaping(propensity_calc, popul_num, popul_num_all, tao_all, rxn_vector, delta_t, tao, epsi))
+print(gillespie_tau_leaping(propensity_calc, popul_num, LHS, stoch_rate, popul_num_all, tao_all, rxn_vector, delta_t, tao, epsi))
 
-# returns blank plots!! 
+
 
 
 popul_num_all = np.array(popul_num_all)
