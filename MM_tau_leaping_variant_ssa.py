@@ -13,7 +13,6 @@ from matplotlib import pyplot as plt # allow inline plot with %matplotlib inline
 import time
 import multiprocessing as mp
 from multiprocessing import Pool
-import os
 #import cProfile
 #import pstats
 #import io
@@ -54,13 +53,13 @@ class simulation_timer:
 
 
 # Need to initialise the discrete numbers of molecules???
-popul_num = np.array([2.0E5, 1.0E5, 0, 0])
+start_state = np.array([200, 100, 0, 0])      # using same variable inside function
 
 # ratios of starting materials for each reaction 
 LHS = np.array([[1,1,0,0], [0,0,1,0], [0,0,1,0]])
 
 # ratios of products for each reaction
-RHS = np.array([[0,0,1,0], [1,1,0,0], [1,0,0,1]])
+RHS = np.array([[0,0,1,0], [1,1,0,0], [1,0,0,1]])   
 
 # stochastic rates of reaction
 stoch_rate = np.array([0.0016, 0.0001, 0.1])
@@ -69,9 +68,9 @@ stoch_rate = np.array([0.0016, 0.0001, 0.1])
 state_change_array = np.asarray(RHS - LHS)
 
 # Intitalise time variables
-tmax = 100.0         # Maximum time
-tao = 0.0           # array to store the time of the reaction.
+tmax = 75.0         # Maximum time       
 
+# global variable
 
 # function to calcualte the propensity functions for each reaction
 def propensity_calc(LHS, popul_num, stoch_rate): 
@@ -88,7 +87,7 @@ def propensity_calc(LHS, popul_num, stoch_rate):
             propensity[row] = a     
     return propensity
 
-print(propensity_calc(LHS, popul_num, stoch_rate))
+#print(propensity_calc(LHS, start_state, stoch_rate))
 
 
 
@@ -102,7 +101,7 @@ def update_array(popul_num, stoch_rate):
 epsi = 0.03
 
 # returns the value to increment time by --> delta_t
-def time_step_calc(propensity_calc, state_change_array, b, epsi):
+def time_step_calc(popul_num, stoch_rate, state_change_array, b, epsi):
     """ Function to calculate the simulation 
     time increment delta_t"""
     propensity = propensity_calc(LHS, popul_num, stoch_rate) 
@@ -125,32 +124,33 @@ def time_step_calc(propensity_calc, state_change_array, b, epsi):
 
 
 # Tau-leaping  method
-popul_num_all = [popul_num]
-tao_all = [tao]
-propensity = np.zeros(len(LHS))
-rxn_vector = np.zeros(len(LHS))  
 
 
-def gillespie_tau_leaping(propensity_calc, popul_num, LHS, stoch_rate, popul_num_all, tao_all, rxn_vector, tao, epsi): 
+def gillespie_tau_leaping(initial_state, LHS, stoch_rate, state_change_array): 
+    popul_num_all = [initial_state]
+    propensity = np.zeros(len(LHS))
+    rxn_vector = np.zeros(len(LHS))  
     t = simulation_timer()
     t.start()
-    leap_counter = 0
+    tao = 0.0 
+    tao_all = [tao]
+    leap_counter = 0.0
+    popul_num = initial_state
     while tao < tmax:
         propensity = propensity_calc(LHS, popul_num, stoch_rate)        
         a0 = (sum(propensity))
         if a0 == 0.0:
-            break
-        if popul_num.any() < 0:
-            break   
+            print("Sum of propensity is zero") 
+            break  
         b = update_array(popul_num, stoch_rate)
-        delta_t = time_step_calc(propensity_calc, state_change_array, b, epsi)
+        delta_t = time_step_calc(popul_num, stoch_rate, state_change_array, b, epsi)
         lam = (propensity_calc(LHS, popul_num, stoch_rate)*delta_t)
         rxn_vector = np.random.poisson(lam) 
         if tao + delta_t > tmax:
+            print("Tau-leaping simulation time ended")
             break
         if delta_t >= 1/a0:
-            tao += delta_t 
-            #print("tao:\n", tao)
+            tao += delta_t      
             for j in range(len(rxn_vector)):
                 state_change_lambda = np.squeeze(np.asarray(state_change_array[j])*rxn_vector[j]) 
                 popul_num = popul_num + state_change_lambda
@@ -162,107 +162,64 @@ def gillespie_tau_leaping(propensity_calc, popul_num, LHS, stoch_rate, popul_num
             rxn_probability = propensity / a0   
             num_rxn = np.arange(rxn_probability.size)       
             if tao + next_t > tmax:      
-                tao = tmax
+                print("Exact SSA simulation time ended")
                 break
-            j = stats.rv_discrete(values=(num_rxn, rxn_probability)).rvs() 
-            tao = tao + next_t
+            j = stats.rv_discrete(values=(num_rxn, rxn_probability)).rvs()    
+            tao += next_t
             popul_num = popul_num + np.squeeze(np.asarray(state_change_array[j]))  
             popul_num_all.append(popul_num)   
-            tao_all.append(tao)  
-    print("Molecule numbers:\n", popul_num)
-    print("Time of final simulation:\n", tao)
-    print("Number of reactions:\n", len(tao_all))
-    print("leap counter:\n", leap_counter)
+            tao_all.append(tao) 
+        print("tao:\n", tao)
+    if (popul_num < 0).any():  
+        print("Simulation error: Cannot have negative molecule numbers")
+        tao_all = tao_all[0:-1]
+        popul_num_all = popul_num_all[0:-1]   
+    else:
+        # else condition triggered every time.
+        print("Molecule numbers:\n", popul_num)
+        print("Time of final simulation:\n", tao)
+        print("Number of reactions:\n", len(tao_all))   # number of change of states --> Usually about half the reactions are tau leap.
+        print("leap counter:\n", leap_counter)
     t.stop()
-    return popul_num_all.append(popul_num), tao_all.append(tao)
+    popul_num_all = np.array(popul_num_all)
+    tao_all = np.array(tao_all)
+    return popul_num_all, tao_all
 
 
-gillespie_tau_leaping(propensity_calc, popul_num, LHS, stoch_rate, popul_num_all, tao_all, rxn_vector, tao, epsi)
-
-
-if __name__ == '__main__':
-    t = simulation_timer()
-    t.start()
-    with Pool() as pool:
-        result = pool.map_async(gillespie_tau_leaping, (propensity_calc, popul_num, LHS, stoch_rate, popul_num_all, tao_all, rxn_vector, tao, epsi))
-        print(result.get())
-        print(pool.map(gillespie_tau_leaping, (propensity_calc, popul_num, LHS, stoch_rate, popul_num_all, tao_all, rxn_vector, tao, epsi)))
-        t.stop()
-
-
-# Doing parallel processing times out my funcions much quicker why?
-
-# calculates the time elsaped for each indivdual process instead of all 4 --> which is longer than just running one!
-# ^^^Does work! Runs 4 simulations but then hits an error
-# some sort of error in this line try _async equivalents for pool.map and pool.apply
-
-
-# Plotting the graph 
-popul_num_all = np.array(popul_num_all)
-tao_all = np.array(tao_all)
-
-for i, label in enumerate(['Enzyme', 'Substrate', 'Enzyme-Substrate complex', 'Product']):
-    plt.plot(tao_all, popul_num_all[:, i], label=label)
-plt.legend()
-plt.tight_layout()
-plt.show()
+popul_num_all, tao_all = gillespie_tau_leaping(start_state, LHS, stoch_rate, state_change_array)
 
 
 
-# parallelisation code: 
-# Run a specified number of simulations in parallel
-# How many processes can I run? 
-#print("Number of processors: ", mp.cpu_count())
+# Replicate the first line from the documentation.
+if __name__ == '__main__': 
+    with Pool() as p:
+        pool_results = p.map(gillespie_tau_leaping, [start_state, LHS, stoch_rate, state_change_array])
+        print(pool_results)
+# Need to run 10 independent simulations!
 
 
+def gillespie_plot(tao_all, popul_num_all):
+    fig, ax = plt.subplots()
+    for i, label in enumerate(['Enzyme', 'Substrate', 'Enzyme-Substrate complex', 'Product']):
+        ax.plot(tao_all, popul_num_all[:, i], label=label)
+    ax.legend()
+    plt.show()
+    return fig
 
+# write function for plotting that encapsulates the 2 below arrays! 
+# Need to think about how to display them 
+# Plot them either one after the other or take the average
+# Or one graph with x amount of simulations for substrate!
 
+gillespie_plot(tao_all, popul_num_all)
 
-#if __name__ == '__main__':
-#    jobs = []
-#    for i in range(4):
-#        p = mp.Process(target=gillespie_tau_leaping, args=(propensity_calc, popul_num, LHS, stoch_rate, popul_num_all, tao_all, rxn_vector, tao, epsi))
-#        jobs.append(p)
-#        p.start()
-# seems to run processes one after the other instead of in parallel
-# also throws attribute errors after the first run why?!?! 
-# some of the graphs are wrong some aren't??? 
-
-
-
-#if __name__ == '__main__':
-#    with Pool() as Pool:   
-#        result = Pool.apply_async(gillespie_tau_leaping, args=(propensity_calc, popul_num, LHS, stoch_rate, popul_num_all, tao_all, rxn_vector, tao, epsi))  
-#        print(result.get())     # leaving .get() allows it to take as long as it needs and prevents TimeoutError.
-
-# Really tempramental!
-# Sometimes it seems to work and somethimes it doesnt! 
-
-
-
-# ^^^What does this mean?^^^
-#multiple_results = [Pool.apply_async(os.getpid, ()) for i in range(3)]
-#print([res.get() for res in multiple_results])
-
-# Runs --> produces one correct graph
-# Then enters parallel part
-#   prints one incorrect graph 
-#       Doesn't time out or throw error 
-#           Doesn't print the right number of processes? --> Not sure what it returns? 
-
-
-
-#if __name__ == '__main__':
-#    p = mp.Process(target=gillespie_tau_leaping, args=(propensity_calc, popul_num, LHS, stoch_rate, popul_num_all, tao_all, rxn_vector, tao, epsi))
-#    p.start()
-
-
-# runs simualtion with the wrong graph
-# then it runs and returns a correct graph 
-# then it crashes with AttributeError: 'numpy.ndarray' object has no attribute 'append'
 
 
  
+
+
+
+
 # code for profiling 
 #profile = cProfile.Profile()
 #profile.enable()
