@@ -11,6 +11,8 @@ from scipy.special import binom
 from scipy import stats
 from matplotlib import pyplot as plt # allow inline plot with %matplotlib inline
 import time
+import multiprocessing as mp
+from multiprocessing import Pool
 
 # tau-leaping SSA variant 
 # Class for starting the timer
@@ -35,9 +37,9 @@ class simulation_timer:
             raise TimeError(f"Timer is not running.\n Use .start() to start it.")
 
         self._simulation_stop_time = time.perf_counter()
-        elasped_simulation_time = self._simulation_stop_time - self._simulation_start_time  
+        elapsed_simulation_time = self._simulation_stop_time - self._simulation_start_time  
         self._simulation_start_time = None
-        print(f"Elasped time: {elapsed_simulation_time:0.4f} seconds")
+        print(f"Elapsed time: {elapsed_simulation_time:0.4f} seconds")
 
 # System of equations
 # stochiometric equation needs to have equal length! 
@@ -48,7 +50,7 @@ class simulation_timer:
 """
 
 # Need to initialise the discrete numbers of molecules???
-popul_num = np.array([1.0E5, 0, 0])
+start_state = np.array([1.0E5, 0, 0])
 # adding in another 1.0E5 --> Gives index error in 52 --> if condition of propensity_calc function   
 
 # ratios of starting materials for each reaction 
@@ -61,17 +63,15 @@ RHS = np.array([[0, 0, 0], [0, 1, 0], [2, 0, 0], [0, 0, 1]])
 stoch_rate = np.array([1.0, 0.002, 0.5, 0.04])
 
 # Define the state change vector
-state_change_array = np.asarray(RHS - LHS)  
-print("State change array:\n", state_change_array)   
-# state change array has length 4 
-# 
+state_change_array = np.asarray(RHS - LHS)   
+
 
 # Intitalise time variables
-tmax = 30.0         # Maximum time
-tao = 0.0           # array to store the time of the reaction.
+tmax = 75.0        # Maximum time
 
 
 # function to calcualte the propensity functions for each reaction
+# Haven't checked this function so far! 
 def propensity_calc(LHS, popul_num, stoch_rate):
     propensity = np.zeros(len(LHS))
     for row in range(len(LHS)):
@@ -88,55 +88,50 @@ def propensity_calc(LHS, popul_num, stoch_rate):
 
 
 
-def update_matrix(popul_num, stoch_rate): 
+def update_array(popul_num, stoch_rate): 
     """Specific to this model 
     will need to change if different model 
-    implements equaiton 24 of the Gillespie paper"""
-    b = np.array([[1.0, 0.0, 0.0], [stoch_rate[1]*(2*(popul_num[0]) - 1)/2, 0.0, 0.0], [0.0, 0.5, 0.0], [0.0, 0.4, 0.0]])
-    return b
-b = update_matrix(popul_num, stoch_rate)
+    implements equaiton 24 of the Gillespie paper""" 
+    # calcualte in seperate varaible then pass it into the array 
+    s_derviative = stoch_rate[1]*(2*popul_num[0] -1)/2
+    b = np.array([[1.0, 0.0, 0.0], [s_derviative, 0.0, 0.0], [0.0, 0.5, 0.0], [0.0, 0.4, 0.0]])
+    return b 
 
 
-epsi = 0.03
+epsi = 0.03     # bigger epsi can get leaps to right number --> But this is the value used in the paper! 
 
-def time_step_calc(propensity_calc, state_change_array, b, epsi):
+def time_step_calc(popul_num, stoch_rate, state_change_array, b, epsi):
     """ Function to calculate the simulation 
     time increment delta_t"""
     propensity = propensity_calc(LHS, popul_num, stoch_rate) 
-    print("time_step_calc propensity:\n", propensity)
     denominator = np.zeros(len(propensity))
     a0 = sum(propensity)
-    # equation 22:
-    exptd_state_array = 0.0
-    for x in range(len(propensity)):
-        exptd_state_array +=  propensity[x]*state_change_array[x]
-        # expected states for first two reactions are very large
-    print("expectd state array:\n", exptd_state_array) 
-    # equation 24: Calculated ad-hoc results in bji matrix
-    numerator = epsi*a0 
+    # equation 22: --> propensity*expected state
+    exptd_state_array = 0.0     
+    for x in range(len(propensity)):    
+        exptd_state_array += propensity[x]*state_change_array[x]    
+    # equation 24: Calculated ad-hoc results in bji matrix 
     for j in range(len(propensity)):
         for i in range(len(popul_num)):
-            denominator[j] += (exptd_state_array[i]*b[j, i])
+            denominator[j] += (exptd_state_array[i]*b[j, i])   
     # equation 26
-    delta_t_array = numerator/abs(denominator)
-    print("delta_t_array:\n", delta_t_array)
+    numerator = epsi*a0
+    delta_t_array = (numerator/abs(denominator))
     delta_t = min(delta_t_array)
-    print("The calculated value of delta_t:\n", delta_t)
     return delta_t
-delta_t = time_step_calc(propensity_calc, state_change_array, b, epsi)
 
+# Issue must be with this function! The other model works fine! But the time_step_calc functions are different!
 
-
-# Tau-leaping while-loop method
-popul_num_all = [popul_num]
-tao_all = [tao]
-propensity = np.zeros(len(LHS))
-rxn_vector = np.zeros(len(LHS))  
-a0 = sum(propensity)
-
-def gillespie_tau_leaping(propensity_calc, popul_num, LHS, stoch_rate, popul_num_all, tao_all, rxn_vector, delta_t, tao, epsi):
+# Tau-leaping while-loop method  
+def gillespie_tau_leaping(initial_state, LHS, stoch_rate, state_change_array):
+    popul_num_all = [initial_state]
+    popul_num = initial_state
+    propensity = np.zeros(len(LHS))
+    rxn_vector = np.zeros(len(LHS))
     t = simulation_timer()
     t.start()
+    tao = 0.0
+    tao_all = [tao]
     leap_counter = 0
     while tao < tmax:
         propensity = propensity_calc(LHS, popul_num, stoch_rate)    
@@ -144,19 +139,19 @@ def gillespie_tau_leaping(propensity_calc, popul_num, LHS, stoch_rate, popul_num
         if a0 == 0.0:  
             print("Propensity sum is zero end execution")   
             break   
-        if popul_num.any() < 0:       
-            print("Molecules numbers below zero end execution")
-            break
-        lam = (propensity_calc(LHS, popul_num, stoch_rate)*delta_t)    
+        b = update_array(popul_num, stoch_rate) 
+        delta_t = time_step_calc(popul_num, stoch_rate, state_change_array, b, epsi)  
+        #print("delta_t:\n", delta_t) 
+        lam = (propensity*delta_t)    
         rxn_vector = np.random.poisson(lam) 
         if tao + delta_t > tmax:
             break    
-        tao += delta_t  
-        if delta_t >= 1 / a0:
+        if delta_t >= 2 / a0:   
+            tao += delta_t  
             for j in range(len(rxn_vector)):  
                 state_change_lambda = np.squeeze(np.asarray(state_change_array[j])*rxn_vector[j]) 
                 popul_num = popul_num + state_change_lambda       
-            leap_counter += 1 
+            leap_counter += 1
             popul_num_all.append(popul_num)
             tao_all.append(tao) 
         else:   # else execute the ssa because it's faster
@@ -171,30 +166,59 @@ def gillespie_tau_leaping(propensity_calc, popul_num, LHS, stoch_rate, popul_num
             popul_num = popul_num + np.squeeze(np.asarray(state_change_array[j]))  
             popul_num_all.append(popul_num)   
             tao_all.append(tao)  
-    print("Molecule numbers:\n", popul_num)
-    print("Time of final simulation:\n", tao)
-    print("leap counter:\n", leap_counter)
+    if (popul_num < 0).any():       
+        print(f"Number of molecules {popul_num} is too small for reaction to fire")
+        tao_all = tao_all[0:-1]
+        popul_num_all = popul_num_all[0:-1]
+    else:
+        print("Molecule numbers:\n", popul_num)
+        print("Time of final simulation:\n", tao)
+        print("leap counter:\n", leap_counter)
+        print("Number of reactions:\n", len(tao_all))
     t.stop()
-    return popul_num_all.append(popul_num), tao_all.append(tao), popul_num
+    popul_num_all = np.array(popul_num_all)
+    tao_all = np.array(tao_all)
+    return popul_num_all, tao_all
 
 
-print(gillespie_tau_leaping(propensity_calc, popul_num, LHS, stoch_rate, popul_num_all, tao_all, rxn_vector, delta_t, tao, epsi))
+popul_num_all, tao_all = gillespie_tau_leaping(start_state, LHS, stoch_rate, state_change_array)
+# Number of leaps less than value given in paper 
+#   But is quite close and in the right order of magnitude 
+#       ~ 380, 422, 402
+
+# Replicate the first line from the documentation.
+t = simulation_timer()
+t.start()
+if __name__ == '__main__': 
+    with Pool() as p:
+        pool_results = p.map(gillespie_tau_leaping, [start_state, LHS, stoch_rate, state_change_array])
+        print(pool_results)
+t.stop()
+
+
+# could just do it manually?
 
 
 
+# Still unsure what the error message is 
+# When I close the grpahs after parallel processing. 
+# TypeError: gillespie_tau_leaping() missing 3 required positional arguments: 'LHS', 'stoch_rate', and 'state_change_array'
+# On p.map line? 
 
-popul_num_all = np.array(popul_num_all)
-tao_all = np.array(tao_all)
-fig, (ax1, ax2) = plt.subplots(1, 2)
+# Need function to do the plotting 
+#   All variables need to be encapsulated! 
 
-ax1.plot(tao_all, popul_num_all[:, 0], label='S', color= 'Green')
-ax1.legend()
+def gillespie_plot(tao_all, popul_num):
+    fig, (ax1, ax2) = plt.subplots(1, 2)
+    ax1.plot(tao_all, popul_num_all[:, 0], label='S', color= 'Green')
+    ax1.legend()
+    for i, label in enumerate(['T', 'U']):
+        ax2.plot(tao_all, popul_num_all[:, i+1], label=label)
+    ax2.legend()
+    plt.tight_layout()
+    plt.show()
+    return fig
 
-for i, label in enumerate(['T', 'U']):
-    ax2.plot(tao_all, popul_num_all[:, i+1], label=label)
 
-ax2.legend()
-plt.tight_layout()
-plt.show()
-
+gillespie_plot(tao_all, popul_num_all)
 
