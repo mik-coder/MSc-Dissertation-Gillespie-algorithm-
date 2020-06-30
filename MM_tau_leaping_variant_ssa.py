@@ -70,7 +70,7 @@ state_change_array = np.asarray(RHS - LHS)
 # Intitalise time variables
 tmax = 75.0         # Maximum time       
 
-# global variable
+
 
 # function to calcualte the propensity functions for each reaction
 def propensity_calc(LHS, popul_num, stoch_rate): 
@@ -86,8 +86,6 @@ def propensity_calc(LHS, popul_num, stoch_rate):
                     break
             propensity[row] = a     
     return propensity
-
-#print(propensity_calc(LHS, start_state, stoch_rate))
 
 
 
@@ -158,6 +156,7 @@ def gillespie_tau_leaping(initial_state, LHS, stoch_rate, state_change_array):
             popul_num_all.append(popul_num)
             tao_all.append(tao)  
         else: 
+            print("Execute the exact ssa")
             next_t = np.random.exponential(1/a0)
             rxn_probability = propensity / a0   
             num_rxn = np.arange(rxn_probability.size)       
@@ -171,11 +170,10 @@ def gillespie_tau_leaping(initial_state, LHS, stoch_rate, state_change_array):
             tao_all.append(tao) 
         print("tao:\n", tao)
     if (popul_num < 0).any():  
-        print("Simulation error: Cannot have negative molecule numbers")
+        print(f"Number of molecules {popul_num} is too small for reaction to fire")
         tao_all = tao_all[0:-1]
         popul_num_all = popul_num_all[0:-1]   
     else:
-        # else condition triggered every time.
         print("Molecule numbers:\n", popul_num)
         print("Time of final simulation:\n", tao)
         print("Number of reactions:\n", len(tao_all))   # number of change of states --> Usually about half the reactions are tau leap.
@@ -197,6 +195,9 @@ if __name__ == '__main__':
         print(pool_results)
 # Need to run 10 independent simulations!
 
+# Need to think about how to display them 
+# Plot them either one after the other or take the average
+# Or one graph with x amount of simulations for substrate!
 
 def gillespie_plot(tao_all, popul_num_all):
     fig, ax = plt.subplots()
@@ -206,10 +207,6 @@ def gillespie_plot(tao_all, popul_num_all):
     plt.show()
     return fig
 
-# write function for plotting that encapsulates the 2 below arrays! 
-# Need to think about how to display them 
-# Plot them either one after the other or take the average
-# Or one graph with x amount of simulations for substrate!
 
 gillespie_plot(tao_all, popul_num_all)
 
