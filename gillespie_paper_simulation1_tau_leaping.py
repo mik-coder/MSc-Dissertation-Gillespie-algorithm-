@@ -11,6 +11,8 @@ from scipy.special import binom
 from scipy import stats
 from matplotlib import pyplot as plt # allow inline plot with %matplotlib inline
 import time
+import multiprocessing as mp
+from multiprocessing import Pool
 
 # tau-leaping SSA variant of an Irriversible Isomerisam process!  
 # Need to make custom class to time algorithm! 
@@ -46,7 +48,7 @@ class simulation_timer:
 """
 
 # Need to initialise the discrete numbers of molecules???
-popul_num = np.array([1.0E5])
+start_state = np.array([1.0E5])
 # should use --> [1.0E5]
 
 # ratios of starting materials for each reaction 
@@ -60,10 +62,11 @@ stoch_rate = np.array([1.0])
 
 # Define the state change vector
 state_change_array = np.asarray(RHS - LHS)
+# state_change_array = [-1]
 
 # Intitalise time variables
-tmax = 5.0         # Maximum time
-tao = 0.0           # array to store the time of the reaction.
+tmax = 30.0         # Maximum time
+           # array to store the time of the reaction.
 
 
 # function to calcualte the propensity functions for each reaction
@@ -79,104 +82,122 @@ def propensity_calc(LHS, popul_num, stoch_rate):
                     a = 0
                     break
             propensity[row] = a     
+            #print("Propensity_calc:\n", propensity)
     return propensity
 
-# Tau-leaping  method
-epsi = 0.03
-popul_num_all = [popul_num]
-tao_all = [tao]
-propensity = np.zeros(len(LHS))
-rxn_vector = np.zeros(len(LHS))  
 
 
 # Need an ad-hoc model specific determination of delta_t 
-"""from the binomial formula: [x(x - 1) / 1!] + 1 where x is the number of molecules 
-This is exanded to: x^2 - x + 1 
-This is then differentiatied to: 2x - 1 
-The molecule numbers are substituted in for x to give: 199999 """
-
-# define a function to calcualte the value best value of delta_t
-def time_step_count(propensity_calc, state_change_array, epsi): 
-    evaluate_propensity = propensity_calc(LHS, popul_num, stoch_rate) 
-    a0 = sum(evaluate_propensity)
+# define a function to calcualte the best value of delta_t
+epsi = 0.03  
+def time_step_count(popul_num, stoch_rate, state_change_array, epsi): 
+    """ Function to calculate the simulation time increment delta_t"""
+    propensity = propensity_calc(LHS, popul_num, stoch_rate)  
+    #print("time_step_calc propensity:\n", propensity)
+    a0 = sum(propensity)
     # equation 22:   
-    exptd_state_change = sum(evaluate_propensity*state_change_array)  
-    # TypeError: numpy.float64 is not iterable
-    # Both are numpy.ndarray --> why the error?
+    exptd_state_change = 0.0
+    for x in range(len(propensity)):
+        exptd_state_change += propensity[x]*state_change_array[x] 
     # equation 24: 
-    bj = evaluate_propensity / 199999
+    b = 1.0 # see email from paolo with workings out? 
+    # b = derivative of propensity formula from lectures
     # equation 26: 
-    delta_t = ((epsi*a0)/abs(exptd_state_change*bj))
-    print("The calculated value of delta_t:\n", delta_t)
+    numerator = epsi*a0
+    denominator = abs(exptd_state_change*b)
+    delta_t = numerator/denominator
     return delta_t
+# delta_t trebelling towards the end of the simualtion can only be due to propensity! 
+# But this function seems to work properly! 
 
 
 
-delta_t = time_step_count(propensity_calc, state_change_array, epsi)
-
-
-def gillespie_tau_leaping(propensity_calc, popul_num, popul_num_all, tao_all, rxn_vector, tao, delta_t, epsi):
+def gillespie_tau_leaping(initial_state, LHS, stoch_rate, state_change_array):
+    popul_num = initial_state
+    popul_num_all = [initial_state]
+    propensity = np.zeros(len(LHS))
+    rxn_vector = np.zeros(len(LHS))
     t = simulation_timer()
     t.start()
+    tao = 0.0
+    tao_all = [tao]
+    leap_counter = 0
     while tao < tmax:
-        propensity = propensity_calc(LHS, popul_num, stoch_rate)        
+        propensity = propensity_calc(LHS, popul_num, stoch_rate)     
+        #print("gillespie_tau_leaping propensity:\n", propensity)   
         a0 = (sum(propensity))
         if a0 == 0.0:
-            break
-        # if reaction cannot fire corresponding element in rxn_vector should be zero --> tau leaping method 
-        if popul_num.any() < 0:
-            print("Number of molecules {} is too small for reaction to fire".format(popul_num))
-            break   
+            break 
+        delta_t = time_step_count(popul_num, stoch_rate, state_change_array, epsi)
         lam = (propensity_calc(LHS, popul_num, stoch_rate)*delta_t)
-        rxn_vector = np.random.poisson(lam)    
+        rxn_vector = np.random.poisson(lam) 
+        #print("reaction vector:\n", rxn_vector)   
         if tao + delta_t > tmax:
+            print("Tau leaping simulation time over")
             break
-        tao += delta_t
-        # divide tao by delta_t to calculate number of leaps  
-        if tao >= 2/a0:     
+        if delta_t >= 2/a0:   
+            tao += delta_t  
             for j in range(len(rxn_vector)):
                 state_change_lambda = np.squeeze(np.asarray(state_change_array[j])*rxn_vector[j]) 
-                popul_num = popul_num + state_change_lambda
-                new_propensity = propensity_calc(LHS, popul_num, stoch_rate)   
-            for n in range(len(new_propensity)):
-                propensity_check = propensity + state_change_lambda 
-                if propensity_check[n] - new_propensity[n] >= epsi*a0:  
-                    print("The value of delta_t {} choosen is too large".format(delta_t))
-                    break
-                else:
-                    popul_num = popul_num + state_change_lambda     
-                    popul_num_all.append(popul_num)   
-                    tao_all.append(tao)
+                popul_num = popul_num + state_change_lambda         
+            popul_num_all.append(popul_num)   
+            tao_all.append(tao)
+            leap_counter += 1
         else:
             next_t = np.random.exponential(1/a0)
             rxn_probability = propensity / a0   
             num_rxn = np.arange(rxn_probability.size)       
             if tao + next_t > tmax:      
-                tao = tmax
+                print("Exact SSA simulation time over")
                 break
-            j = stats.rv_discrete(values=(num_rxn, rxn_probability)).rvs()
+            j = stats.rv_discrete(values=(num_rxn, rxn_probability)).rvs() 
             tao = tao + next_t
-            popul_num = popul_num + np.squeeze(np.asarray(state_change_array[j]))   
-    print("tao:\n", tao)
-    print("Molecule numbers:\n", popul_num)
-    leap_counter = tao / delta_t 
-    print("Number of leaps taken:\n", leap_counter)
+            popul_num = popul_num + np.squeeze(np.asarray(state_change_array[j]))  
+            popul_num_all.append(popul_num)   
+            tao_all.append(tao) 
+        #print("Tao:\n", tao)
+    if (popul_num < 0).any():       
+        print(f"Number of molecules {popul_num} is too small for reaction to fire")
+        tao_all = tao_all[0:-1]
+        popul_num_all = popul_num_all[0:-1]
+    else:
+        print("Molecule numbers:\n", popul_num)
+        print("Time of final simulation:\n", tao)
+        print("leap counter:\n", leap_counter)
+        print("Number of reactions:\n", len(tao_all))  
     t.stop()
-    return popul_num_all.append(popul_num), tao_all.append(tao)
+    popul_num_all = np.array(popul_num_all)
+    tao_all = np.array(tao_all)
+    return popul_num_all, tao_all
 
-
-# RUNS!!!
-# leap_output not quite right 
+# Jumps into negative molecules once propensity_calc is removed as a function input
  
-print(gillespie_tau_leaping(propensity_calc, popul_num, popul_num_all, tao_all, rxn_vector, tao, delta_t, epsi))
+popul_num_all, tao_all = gillespie_tau_leaping(start_state, LHS, stoch_rate, state_change_array)
 
-popul_num_all = np.array(popul_num_all)
-tao_all = np.array(tao_all)
-for i, label in enumerate(['S1']):
-    plt.plot(popul_num_all, label=label)
-plt.legend()
-plt.tight_layout()
-plt.show()
+# Parallelisation replication of the first example in docs
+if __name__ == '__main__': 
+    with Pool() as p:
+        pool_results = p.map(gillespie_tau_leaping, [start_state, LHS, stoch_rate, state_change_array])
+        print(pool_results)
+
+
+def gillespie_plot(popul_num_all, tao_all):
+    fig, ax = plt.subplots()
+    for i, label in enumerate(['S1']):
+        plt.plot(tao_all, popul_num_all, label=label)
+    plt.legend()
+#plt.tight_layout() # --> Not too sure what this does
+    plt.show()
+    return fig
+# Plotting tao_all on the x-axis creates a warning for i
+# i is an unused variable when tao_all is plotted
+# Without plotting tao_all get a linear decay of molecule numbers 
+
+gillespie_plot(popul_num_all, tao_all)
+
+
+# taking the plotting out of the function 
+# removes the problem with the undfined variable i
 
 # Updated version!
 # Needs pushing up to Github
