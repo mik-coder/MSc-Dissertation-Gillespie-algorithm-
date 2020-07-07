@@ -6,9 +6,9 @@ from scipy.special import binom
 from scipy import stats
 from matplotlib import pyplot as plt # allow inline plot with %matplotlib inline
 import time
-import datetime
 import multiprocessing as mp
 from multiprocessing import Pool
+import itertools as it
 #import cProfile
 #import pstats
 #import io
@@ -28,11 +28,10 @@ class TimeError(Exception):
     pass
 
 class SimulationTimer: 
-    accumulated_elapsed_time = 0.0  # Needs to be a class variable not an instance variable
     def __init__(self):
         self._simulation_start_time = None
         self._simulation_stop_time = None
-        #self.accumulated_elapsed_time = 0.0 #--> Needs to be a CLASS variable
+        self.accumulated_elapsed_time = 0.0
 
     def start(self):
         """start a new timer"""
@@ -56,16 +55,9 @@ class SimulationTimer:
         """ Return the elapsed time for later use"""
         return self.accumulated_elapsed_time
 
-#print(f"Accumulated time: {simulation_timer.get_accumulated_time():0.4f} seconds")
-# Given in Stackoverflow answer 
-
-# Need to edit timer class to return a value instead of just print 
 
 # Need to initialise the discrete numbers of molecules???
-start_state = np.array([1000, 2000, 0, 0])      
-# With larger molecule numbers the reaction happen much quicker.
-# The enzyme is
-
+start_state = np.array([2.0E5, 1.0E5, 0, 0])      # using same variable inside function
 
 # ratios of starting materials for each reaction 
 LHS = np.array([[1,1,0,0], [0,0,1,0], [0,0,1,0]])
@@ -75,14 +67,12 @@ RHS = np.array([[0,0,1,0], [1,1,0,0], [1,0,0,1]])
 
 # stochastic rates of reaction
 stoch_rate = np.array([0.0016, 0.0001, 0.1])
-# Do slower rates of reaction change the apperance of the graph? 
-# old rates:  
 
 # Define the state change vector
 state_change_array = np.asarray(RHS - LHS)
 
 # Intitalise time variables
-tmax = 50.0       # Maximum time       
+tmax = 75.0         # Maximum time       
 
 
 
@@ -107,7 +97,11 @@ def update_array(popul_num, stoch_rate):
     """Specific to this model 
     will need to change if different model 
     implements equaiton 24 of the Gillespie paper"""
-    b = np.array([[stoch_rate[0]*popul_num[0], stoch_rate[0]*popul_num[1], 0.0, 0.0], [0.0, 0.0, 0.0001, 0.0], [0.0, 0.0, 0.1, 0.0]])
+    # Different derivative check this
+    # Changing limiting reagents around means derivatives needs to change! 
+    e_derivative = stoch_rate[0]*popul_num[1]   # derivative with respect to E is a function of S
+    s_derivative = stoch_rate[0]*popul_num[0]   # derivative with respect to S is a function of E
+    b = np.array([[e_derivative, s_derivative, 0.0, 0.0], [0.0, 0.0, 0.0001, 0.0], [0.0, 0.0, 0.1, 0.0]])
     return b
 
 epsi = 0.03
@@ -124,29 +118,30 @@ def time_step_calc(popul_num, stoch_rate, state_change_array, b, epsi):
     for x in range(len(propensity)):
         exptd_state_array +=  propensity[x]*state_change_array[x]
         # expected states for first two reactions are very large
-    # equation 24: Calculated ad-hoc results in bji matrix
-    numerator = epsi*a0 
+    # equation 24: Calculated ad-hoc results in bji matrix 
     for j in range(len(propensity)):
         for i in range(len(popul_num)):
             denominator[j] += (exptd_state_array[i]*b[j, i])
             checked_denominator = denominator[denominator != 0]
     # equation 26
-    delta_t_array = numerator/abs(checked_denominator)
+    numerator = epsi*a0
+    delta_t_array = (numerator/abs(checked_denominator))
     delta_t = min(delta_t_array)
     return delta_t
 
 
 # Tau-leaping  method
+# Run the simulation several times sequentially 
+# Nest the while in a for loop that iterates a certain number of times
+
 def gillespie_tau_leaping(initial_state, LHS, stoch_rate, state_change_array): 
     popul_num_all = [initial_state]
+    popul_num = initial_state
     propensity = np.zeros(len(LHS))
-    rxn_vector = np.zeros(len(LHS))
-    t = SimulationTimer()
-    t.start()
+    rxn_vector = np.zeros(len(LHS))  
     tao = 0.0 
     tao_all = [tao]
-    leap_counter = 0.0
-    popul_num = initial_state
+    leap_counter = 0
     while tao < tmax:
         propensity = propensity_calc(LHS, popul_num, stoch_rate)        
         a0 = (sum(propensity))
@@ -155,13 +150,12 @@ def gillespie_tau_leaping(initial_state, LHS, stoch_rate, state_change_array):
             break  
         b = update_array(popul_num, stoch_rate)
         delta_t = time_step_calc(popul_num, stoch_rate, state_change_array, b, epsi)
-        lam = (propensity_calc(LHS, popul_num, stoch_rate)*delta_t)
-        rxn_vector = np.random.poisson(lam) # sampling number of reactions to fire in tau leaping step
-        # if the above is large will result in negative molecule numbers
+        lam = (propensity*delta_t)
+        rxn_vector = np.random.poisson(lam) 
         if tao + delta_t > tmax:
-            print("Tau-leaping simulation time ended")
+            #print("Tau-leaping simulation time ended")
             break
-        if delta_t >= 1/a0:  
+        if delta_t >= 2 /a0:
             new_popul_num = popul_num   
             for j in range(len(rxn_vector)):
                 state_change_lambda = np.squeeze(np.asarray(state_change_array[j])*rxn_vector[j]) 
@@ -176,18 +170,20 @@ def gillespie_tau_leaping(initial_state, LHS, stoch_rate, state_change_array):
                 tao_all.append(tao)
                 leap_counter += 1 
         else: 
+            #print("Execute the exact ssa")
             next_t = np.random.exponential(1/a0)
             rxn_probability = propensity / a0   
             num_rxn = np.arange(rxn_probability.size)       
             if tao + next_t > tmax:      
                 print("Exact SSA simulation time ended")
+                tao = tmax
                 break
             j = stats.rv_discrete(values=(num_rxn, rxn_probability)).rvs()    
             tao += next_t
             popul_num = popul_num + np.squeeze(np.asarray(state_change_array[j]))  
             popul_num_all.append(popul_num)   
             tao_all.append(tao) 
-        #print("Molecule numbers:\n", popul_num)
+        #print("tao:\n", tao)
         if (popul_num < 0).any():  
             print(f"Number of molecules {popul_num} is too small for reaction to fire")
             tao_all = tao_all[0:-1]
@@ -197,31 +193,15 @@ def gillespie_tau_leaping(initial_state, LHS, stoch_rate, state_change_array):
     print("Time of final simulation:\n", tao)
     print("Number of reactions:\n", len(tao_all))   # number of change of states --> Usually about half the reactions are tau leap.
     print("leap counter:\n", leap_counter)
-    t.stop()
-    #print(f"Accumulated time: {t.get_accumulated_time():0.10f} seconds")    # get_accumulated_time --> function
     popul_num_all = np.array(popul_num_all)
     tao_all = np.array(tao_all)
-    return popul_num_all, tao_all, t.get_accumulated_time()   # the accumulated time returned! 
-
-if __name__ == '__main__':
-    popul_num_all, tao_all, accumulated_elapsed_time = gillespie_tau_leaping(start_state, LHS, stoch_rate, state_change_array)
+    return popul_num_all, tao_all
 
 
-if __name__ == '__main__':
-    with Pool() as p:
-        pool_results = p.starmap(gillespie_tau_leaping, [(start_state, LHS, stoch_rate, state_change_array) for i in range(5)])
-        #print(pool_results)
-        p.close()
-        p.join()   
-        total_time = 0.0
-        for tuple_results in pool_results:
-            total_time += tuple_results[2]
-    print(f"Total time:\n{total_time}")
-
-
+popul_num_all, tao_all = gillespie_tau_leaping(start_state, LHS, stoch_rate, state_change_array)
 
 def gillespie_plot(tao_all, popul_num_all):
-    """ Function to plot the results of the Gillespie simulation"""
+    """ Function to plot the results of the gillespie simulation"""
     fig, ax = plt.subplots()
     for i, label in enumerate(['Enzyme', 'Substrate', 'Enzyme-Substrate complex', 'Product']):
         ax.plot(tao_all, popul_num_all[:, i], label=label)
@@ -230,23 +210,26 @@ def gillespie_plot(tao_all, popul_num_all):
     return fig
 
 
-if __name__ == '__main__':
-    gillespie_plot(tao_all, popul_num_all)
+gillespie_plot(tao_all, popul_num_all)
+
+# Function that calls the Gillespie simualtion multiple times sequentially! 
+def repeat_func(times, gillespie_tau_leaping, gillespie_plot, *args):
+    """ Function to call and run other functions multiple times """
+    t = SimulationTimer()
+    t.start()
+    for i in range(times): gillespie_tau_leaping(start_state, LHS, stoch_rate, state_change_array)
+    for j in range(times): gillespie_plot(tao_all, popul_num_all)
+    t.stop()
+    return i, j
+
+
+repeat_func(5, gillespie_tau_leaping, gillespie_plot, start_state, LHS, stoch_rate, state_change_array, popul_num_all, tao_all)
 
 
 
- 
 
 
 
 
-# code for profiling 
-#profile = cProfile.Profile()
-#profile.enable()
-"""function here"""
-#profile.disable()
-#s = io.StringIO()
-#ps = pstats.Stats(profile, stream=s).sort_stats('tottime')
-#ps.print_stats()
-#with open('tau_ssa_MM_performance.txt', 'w+') as f:
-#    f.write(s.getvalue())
+
+
