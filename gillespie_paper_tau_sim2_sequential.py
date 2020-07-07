@@ -1,8 +1,3 @@
-# https://github.com/karinsasaki/gillespie-algorithm-python/blob/master/build_your_own_gillespie_exercises.ipynb
-# ^^^ Github example of stochastic implementation ^^^
-# http://be150.caltech.edu/2016/handouts/gillespie_simulation.html
-# ^^^ Example algorithm ^^^
-
 # Implement a tau-leaping variant of the SSA   
 
 import numpy as np
@@ -80,6 +75,7 @@ tmax = 75.0        # Maximum time
 
 
 # function to calcualte the propensity functions for each reaction
+# Haven't checked this function so far! 
 def propensity_calc(LHS, popul_num, stoch_rate):
     propensity = np.zeros(len(LHS))
     for row in range(len(LHS)):
@@ -100,17 +96,18 @@ def update_array(popul_num, stoch_rate):
     """Specific to this model 
     will need to change if different model 
     implements equaiton 24 of the Gillespie paper""" 
+    # calcualte in seperate varaible then pass it into the array 
     s_derviative = stoch_rate[1]*(2*popul_num[0] -1)/2
     b = np.array([[1.0, 0.0, 0.0], [s_derviative, 0.0, 0.0], [0.0, 0.5, 0.0], [0.0, 0.4, 0.0]])
     return b 
 
 
-epsi = 0.03     
+epsi = 0.03     # bigger epsi can get leaps to right number --> But this is the value used in the paper! 
 
-def time_step_calc(propensity, popul_num, stoch_rate, state_change_array, b, epsi):
+def time_step_calc(popul_num, stoch_rate, state_change_array, b, epsi):
     """ Function to calculate the simulation 
     time increment delta_t"""
-    #propensity = propensity_calc(LHS, popul_num, stoch_rate) 
+    propensity = propensity_calc(LHS, popul_num, stoch_rate) 
     denominator = np.zeros(len(propensity))
     a0 = sum(propensity)
     # equation 22: --> propensity*expected state
@@ -121,15 +118,14 @@ def time_step_calc(propensity, popul_num, stoch_rate, state_change_array, b, eps
     for j in range(len(propensity)):
         for i in range(len(popul_num)):
             denominator[j] += (exptd_state_array[i]*b[j, i])   
-            checked_denominator = denominator[denominator != 0]   
-    #print("Denomiator:\n", checked_denominator)
+            checked_denominator = denominator[denominator != 0]
     # equation 26
     numerator = epsi*a0
-    delta_t_array = (numerator/abs(checked_denominator))    
+    delta_t_array = (numerator/abs(checked_denominator))
     delta_t = min(delta_t_array)
     return delta_t
 
-
+# Issue must be with this function! The other model works fine! But the time_step_calc functions are different!
 
 # Tau-leaping while-loop method  
 def gillespie_tau_leaping(initial_state, LHS, stoch_rate, state_change_array):
@@ -137,8 +133,6 @@ def gillespie_tau_leaping(initial_state, LHS, stoch_rate, state_change_array):
     popul_num = initial_state
     propensity = np.zeros(len(LHS))
     rxn_vector = np.zeros(len(LHS))
-    t = SimulationTimer()
-    t.start()
     tao = 0.0
     tao_all = [tao]
     leap_counter = 0
@@ -149,7 +143,7 @@ def gillespie_tau_leaping(initial_state, LHS, stoch_rate, state_change_array):
             print("Propensity sum is zero end execution")   
             break   
         b = update_array(popul_num, stoch_rate) 
-        delta_t = time_step_calc(propensity, popul_num, stoch_rate, state_change_array, b, epsi)  
+        delta_t = time_step_calc(popul_num, stoch_rate, state_change_array, b, epsi)  
         #print("delta_t:\n", delta_t) 
         lam = (propensity*delta_t)    
         rxn_vector = np.random.poisson(lam) 
@@ -168,7 +162,7 @@ def gillespie_tau_leaping(initial_state, LHS, stoch_rate, state_change_array):
                 popul_num_all.append(popul_num)
                 tao += delta_t 
                 tao_all.append(tao)
-                leap_counter += 1          
+                leap_counter += 1     
         else:   # else execute the ssa because it's faster
             next_t = np.random.exponential(1/a0)
             rxn_probability = propensity / a0   
@@ -189,35 +183,14 @@ def gillespie_tau_leaping(initial_state, LHS, stoch_rate, state_change_array):
     print("Time of final simulation:\n", tao)
     print("leap counter:\n", leap_counter)
     print("Number of reactions:\n", len(tao_all))
-    t.stop()
-    #print(f"Accumulated time: {t.get_accumulated_time():0.10f} seconds")
     popul_num_all = np.array(popul_num_all)
     tao_all = np.array(tao_all)
-    return popul_num_all, tao_all, t.get_accumulated_time()
-
-if __name__ == '__main__':
-    popul_num_all, tao_all, accumulated_elapsed_time = gillespie_tau_leaping(start_state, LHS, stoch_rate, state_change_array)
+    return popul_num_all, tao_all
 
 
-# Needs to be after the gillespie_tau_leaping function call
-if __name__ == '__main__':
-    with Pool() as p:
-        pool_results = p.starmap(gillespie_tau_leaping, [(start_state, LHS, stoch_rate, state_change_array) for i in range(5)])
-        #print(pool_results)
-        p.close()
-        p.join()   
-        total_time = 0.0
-        for tuple_results in pool_results:
-            total_time += tuple_results[2]
-    print(f"Total time:\n{total_time}") 
+popul_num_all, tao_all = gillespie_tau_leaping(start_state, LHS, stoch_rate, state_change_array)
 
-
-
-
-# total time isn't correct!
-# Values in returned array don't add up to the value of the total time
-# Where does the array come from 
-# Total time returned is just the elapsed time from the last process? 
+# potential 3rd argument unpacked --> accumulated_elapsed_time
 
 def gillespie_plot(tao_all, popul_num):
     fig, (ax1, ax2) = plt.subplots(1, 2)
@@ -231,8 +204,17 @@ def gillespie_plot(tao_all, popul_num):
     return fig
 
 
-if __name__ == '__main__':
-    gillespie_plot(tao_all, popul_num_all)
+gillespie_plot(tao_all, popul_num_all)
+
+# Function that calls the Gillespie simualtion multiple times sequentially! 
+def repeat_func(times, gillespie_tau_leaping, gillespie_plot, *args):
+    """ Function to call and run other functions multiple times """
+    t = SimulationTimer()
+    t.start()
+    for i in range(times): gillespie_tau_leaping(start_state, LHS, stoch_rate, state_change_array)
+    for j in range(times): gillespie_plot(tao_all, popul_num_all)
+    t.stop()
+    return i, j
 
 
-
+repeat_func(5, gillespie_tau_leaping, gillespie_plot, start_state, LHS, stoch_rate, state_change_array, popul_num_all, tao_all)
