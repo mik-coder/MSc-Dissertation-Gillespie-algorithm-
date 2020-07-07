@@ -18,11 +18,15 @@ from multiprocessing import Pool
 # Need to make custom class to time algorithm! 
 class TimeError(Exception):
     """A custom exception used to report errors in use of Timer Class""" 
+    pass
 
-class simulation_timer: 
+class SimulationTimer: 
+    accumulated_elapsed_time = 0.0  # Needs to be a class variable not an instance variable
+    
     def __init__(self):
         self._simulation_start_time = None
         self._simulation_stop_time = None
+        #self.accumulated_elapsed_time = 0.0 #--> Needs to be a CLASS variable
 
     def start(self):
         """start a new timer"""
@@ -36,10 +40,15 @@ class simulation_timer:
             raise TimeError(f"Timer is not running.\n Use .start() to start it.")
 
         self._simulation_stop_time = time.perf_counter()
-        # should stop the timer!
-        elasped_simulation_time = self._simulation_stop_time - self._simulation_start_time  
+        elapsed_simulation_time = self._simulation_stop_time - self._simulation_start_time  
+        self.accumulated_elapsed_time += elapsed_simulation_time
+
         self._simulation_start_time = None
-        print(f"Elasped time: {elasped_simulation_time:0.4f} seconds")
+        print(f"Elapsed time: {elapsed_simulation_time:0.10f} seconds")
+    
+    def get_accumulated_time(self):
+        """ Return the elapsed time for later use"""
+        return self.accumulated_elapsed_time
 
 # Must make sure that all instantiated variables are not already builtin functions
 
@@ -117,32 +126,36 @@ def gillespie_tau_leaping(initial_state, LHS, stoch_rate, state_change_array):
     popul_num_all = [initial_state]
     propensity = np.zeros(len(LHS))
     rxn_vector = np.zeros(len(LHS))
-    t = simulation_timer()
+    t = SimulationTimer()
     t.start()
     tao = 0.0
     tao_all = [tao]
     leap_counter = 0
     while tao < tmax:
-        propensity = propensity_calc(LHS, popul_num, stoch_rate)     
-        #print("gillespie_tau_leaping propensity:\n", propensity)   
+        propensity = propensity_calc(LHS, popul_num, stoch_rate)        
         a0 = (sum(propensity))
         if a0 == 0.0:
             break 
         delta_t = time_step_count(popul_num, stoch_rate, state_change_array, epsi)
         lam = (propensity_calc(LHS, popul_num, stoch_rate)*delta_t)
-        rxn_vector = np.random.poisson(lam) 
-        #print("reaction vector:\n", rxn_vector)   
+        rxn_vector = np.random.poisson(lam)  
         if tao + delta_t > tmax:
             print("Tau leaping simulation time over")
             break
         if delta_t >= 2/a0:   
-            tao += delta_t  
-            for j in range(len(rxn_vector)):
+            new_popul_num = popul_num
+            for j in range(len(rxn_vector)):  
                 state_change_lambda = np.squeeze(np.asarray(state_change_array[j])*rxn_vector[j]) 
-                popul_num = popul_num + state_change_lambda         
-            popul_num_all.append(popul_num)   
-            tao_all.append(tao)
-            leap_counter += 1
+                new_popul_num = new_popul_num + state_change_lambda  
+            if (new_popul_num < 0).any():  
+                print("Negative molecule numbers\nRejecting leap")
+            else: 
+                print("Accepting leap")
+                popul_num = new_popul_num
+                popul_num_all.append(popul_num)
+                tao += delta_t 
+                tao_all.append(tao)
+                leap_counter += 1    
         else:
             next_t = np.random.exponential(1/a0)
             rxn_probability = propensity / a0   
@@ -155,49 +168,46 @@ def gillespie_tau_leaping(initial_state, LHS, stoch_rate, state_change_array):
             popul_num = popul_num + np.squeeze(np.asarray(state_change_array[j]))  
             popul_num_all.append(popul_num)   
             tao_all.append(tao) 
-        #print("Tao:\n", tao)
-    if (popul_num < 0).any():       
-        print(f"Number of molecules {popul_num} is too small for reaction to fire")
-        tao_all = tao_all[0:-1]
-        popul_num_all = popul_num_all[0:-1]
-    else:
-        print("Molecule numbers:\n", popul_num)
-        print("Time of final simulation:\n", tao)
-        print("leap counter:\n", leap_counter)
-        print("Number of reactions:\n", len(tao_all))  
+        if (popul_num < 0).any():       
+            print(f"Number of molecules {popul_num} is too small for reaction to fire")
+            tao_all = tao_all[0:-1]
+            popul_num_all = popul_num_all[0:-1]
+    print("Molecule numbers:\n", popul_num)
+    print("Time of final simulation:\n", tao)
+    print("leap counter:\n", leap_counter)
+    print("Number of reactions:\n", len(tao_all))  
     t.stop()
     popul_num_all = np.array(popul_num_all)
     tao_all = np.array(tao_all)
-    return popul_num_all, tao_all
+    return popul_num_all, tao_all, t.get_accumulated_time()
 
-# Jumps into negative molecules once propensity_calc is removed as a function input
- 
-popul_num_all, tao_all = gillespie_tau_leaping(start_state, LHS, stoch_rate, state_change_array)
 
-# Parallelisation replication of the first example in docs
 if __name__ == '__main__': 
+    popul_num_all, tao_all, accumulated_elapsed_time = gillespie_tau_leaping(start_state, LHS, stoch_rate, state_change_array)
+
+
+# Needs to be after the gillespie_tau_leaping function call
+if __name__ == '__main__':
     with Pool() as p:
-        pool_results = p.map(gillespie_tau_leaping, [start_state, LHS, stoch_rate, state_change_array])
-        print(pool_results)
+        pool_results = p.starmap(gillespie_tau_leaping, [(start_state, LHS, stoch_rate, state_change_array) for i in range(5)])
+        #print(pool_results)
+        p.close()
+        p.join()   
+        total_time = 0.0
+        for tuple_results in pool_results:
+            total_time += tuple_results[2]
+    print(f"Total time:\n{total_time}") 
 
 
 def gillespie_plot(popul_num_all, tao_all):
+    """ Function to plot the results of the Gillespie simulation"""
     fig, ax = plt.subplots()
     for i, label in enumerate(['S1']):
-        plt.plot(tao_all, popul_num_all, label=label)
+        ax.plot(tao_all, popul_num_all, label=label)
     plt.legend()
-#plt.tight_layout() # --> Not too sure what this does
     plt.show()
     return fig
-# Plotting tao_all on the x-axis creates a warning for i
-# i is an unused variable when tao_all is plotted
-# Without plotting tao_all get a linear decay of molecule numbers 
 
-gillespie_plot(popul_num_all, tao_all)
+if __name__ == '__main__':
+    gillespie_plot(popul_num_all, tao_all)
 
-
-# taking the plotting out of the function 
-# removes the problem with the undfined variable i
-
-# Updated version!
-# Needs pushing up to Github
