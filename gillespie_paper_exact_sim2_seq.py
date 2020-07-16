@@ -105,6 +105,7 @@ def gillespie_exact_ssa(initial_state, LHS, stoch_rate, state_change_array):
     print("Number of reactions:\n", len(tao_all))
     popul_num_all = np.array(popul_num_all)
     tao_all = np.array(tao_all)
+    return popul_num_all, tao_all
 
 
 # Function that calls the Gillespie simualtion multiple times sequentially!
