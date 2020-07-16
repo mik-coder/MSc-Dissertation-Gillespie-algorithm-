@@ -125,7 +125,7 @@ print("Sequential\nSimulation 2")
 
 def gillespie_plot(start_state, LHS, stoch_rate, state_change_array):
     """Function to plot hte results of the gillespie simualtion""" 
-    popul_num_all, tao_all = gillespie_tau_leaping(start_state, LHS, stoch_rate, state_change_array)
+    popul_num_all, tao_all = gillespie_exact_ssa(start_state, LHS, stoch_rate, state_change_array)
     fig, (ax1, ax2) = plt.subplots(1, 2)
     ax1.plot(tao_all, popul_num_all[:, 0], label='S', color= 'Green')
     ax1.legend()
