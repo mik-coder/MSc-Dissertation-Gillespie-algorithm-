@@ -201,7 +201,7 @@ def repeat_func(times, start_state, LHS, stoch_rate, state_change_array):
     print("Simulation time:\n", sim_time)
 
 
-repeat_func(10, start_state, LHS, stoch_rate, state_change_array)
+repeat_func(50, start_state, LHS, stoch_rate, state_change_array)
 
 print("Sequential\nSimulation 2")
 
