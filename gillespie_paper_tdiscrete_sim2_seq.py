@@ -1,0 +1,157 @@
+import numpy as np
+import scipy
+from scipy.special import binom
+from scipy import stats
+from matplotlib import pyplot as plt # allow inline plot with %matplotlib inline
+import time
+from datetime import datetime
+import multiprocessing as mp
+from multiprocessing import Pool
+
+# tau-leaping SSA variant 
+# Class for starting the timer
+class TimeError(Exception):
+    """A custom exception used to report errors in use of Timer Class""" 
+    pass
+
+class SimulationTimer: 
+    accumulated_elapsed_time = 0.0  # Needs to be a class variable not an instance variable
+    
+    def __init__(self):
+        self._simulation_start_time = None
+        self._simulation_stop_time = None
+        #self.accumulated_elapsed_time = 0.0 #--> Needs to be a CLASS variable
+
+    def start(self):
+        """start a new timer"""
+        if self._simulation_start_time is not None:    # attribute
+            raise TimeError(f"Timer is running.\n Use .stop() to stop it")
+
+        self._simulation_start_time = time.perf_counter()  
+    def stop(self):
+        """stop the time and report the elsaped time"""
+        if self._simulation_start_time is None:
+            raise TimeError(f"Timer is not running.\n Use .start() to start it.")
+
+        self._simulation_stop_time = time.perf_counter()
+        elapsed_simulation_time = self._simulation_stop_time - self._simulation_start_time  
+        self.accumulated_elapsed_time += elapsed_simulation_time
+
+        self._simulation_start_time = None
+        print(f"Elapsed time: {elapsed_simulation_time:0.10f} seconds")
+    
+    def get_accumulated_time(self):
+        """ Return the elapsed time for later use"""
+        return self.accumulated_elapsed_time
+
+# System of equations
+# stochiometric equation needs to have equal length! 
+""" 1S + 0T + 0U --> 0S + 0T + 0U
+    2S + 0T + 0U --> 0S + 1T + 0U 
+    0S + 1T + 0U --> 2S + 0T + 0U
+    0S + 1T + 0U --> 0S + 0T + 1U   
+"""
+
+# Need to initialise the discrete numbers of molecules???
+start_state = np.array([1.0E5, 0, 0])
+# adding in another 1.0E5 --> Gives index error in 52 --> if condition of propensity_calc function   
+
+# ratios of starting materials for each reaction 
+LHS = np.array([[1, 0, 0], [2, 0, 0], [0, 1, 0], [0, 1, 0]])
+
+# ratios of products for each reaction
+RHS = np.array([[0, 0, 0], [0, 1, 0], [2, 0, 0], [0, 0, 1]])
+
+# stochastic rates of reaction
+stoch_rate = np.array([1.0, 0.002, 0.5, 0.04])
+
+# Define the state change vector
+state_change_array = np.asarray(RHS - LHS)   
+
+
+# Intitalise time variables
+tmax = 30.0        # Maximum time
+
+
+# function to calcualte the propensity functions for each reaction
+def propensity_calc(LHS, popul_num, stoch_rate):
+    """Function to calculate the probabilty of a reactin in the system firing """
+    propensity = np.zeros(len(LHS))
+    for row in range(len(LHS)):
+            a = stoch_rate[row]     
+            for i in range(len(popul_num)):
+                if (popul_num[i] >= LHS[row, i]):       
+                    binom_rxn = binom(popul_num[i], LHS[row, i])
+                    a = a*binom_rxn
+                else:
+                    a = 0
+                    break
+            propensity[row] = a   
+    return propensity
+
+
+def t_discreteisation(initial_state, LHS, stoch_rate, state_change_array):
+    """Function to simulate the time discretisation variant of the SSA """
+    tao = 0.0
+    delta_t = 0.004    # output highly dependent on value of delta_t!
+    # Currently set to cut off value before output stops working
+    tao_all = [tao]
+    popul_num = initial_state
+    popul_num_all = [initial_state]
+    propensity = np.zeros(len(LHS))
+    leap_counter = 0
+    while tao < tmax:
+        propensity = propensity_calc(LHS, popul_num, stoch_rate)        
+        a0 = (sum(propensity))
+        if a0 == 0.0:
+            break
+        if (popul_num < 0).any():
+            print("Negative molecule numbers\nEnd simulation.")
+            break       
+        lam = (propensity_calc(LHS, popul_num, stoch_rate)*delta_t)
+        rxn_vector = np.random.poisson(lam)    
+        if tao + delta_t > tmax:
+            break
+        else:
+            tao += delta_t  
+            for j in range(len(rxn_vector)):
+                popul_num = popul_num + np.squeeze(np.asarray(state_change_array[j])*rxn_vector[j]) 
+            tao_all.append(tao)
+            popul_num_all.append(popul_num) 
+            leap_counter += 1
+    popul_num_all = np.array(popul_num_all)
+    tao_all = np.array(tao_all)
+    print("Time of final reaction:\n", tao)
+    print("Molecule numbers:\n", popul_num)
+    print("Number of leaps:\n", leap_counter)
+    return popul_num_all, tao_all
+
+
+# Function that calls the Gillespie simualtion multiple times sequentially! 
+def repeat_func(times, start_state, LHS, stoch_rate, state_change_array): # change function call!
+    """ Function to call and run other functions multiple times """
+    start = datetime.utcnow()
+    for i in range(times): t_discreteisation(start_state, LHS, stoch_rate, state_change_array) 
+    end = datetime.utcnow()
+    print(f"Simulation UTC time:\n{end - start}")
+    return i
+
+
+repeat_func(5, start_state, LHS, stoch_rate, state_change_array)
+
+
+def gillespie_plot(start_state, LHS, stoch_rate, state_change_array):
+    """Function to plot hte results of the Gillepsie simulation"""
+    popul_num_all, tao_all = t_discreteisation(start_state, LHS, stoch_rate, state_change_array)
+    fig, (ax1, ax2) = plt.subplots(1, 2)
+    ax1.plot(tao_all, popul_num_all[:, 0], label='S', color= 'Green')
+    ax1.legend()
+    for i, label in enumerate(['T', 'U']):
+        ax2.plot(tao_all, popul_num_all[:, i+1], label=label)
+    ax2.legend()
+    plt.tight_layout()
+    plt.show()
+    return fig
+
+
+gillespie_plot(start_state, LHS, stoch_rate, state_change_array) 
