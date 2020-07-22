@@ -72,7 +72,7 @@ state_change_array = np.asarray(RHS - LHS)
 
 # Intitalise time variables
 tmax = 30.0         # Maximum time
-           # array to store the time of the reaction.
+
 
 
 # function to calcualte the propensity functions for each reaction
@@ -180,10 +180,12 @@ def gillespie_tau_leaping(initial_state, LHS, stoch_rate, state_change_array):
 def parallelfunc(v):
     gillespie_tau_leaping(start_state, LHS, stoch_rate, state_change_array)
 
+
 if __name__ == '__main__':
+    #para_proc = list(range(50))
     start = datetime.utcnow()
     with Pool(processes= 2) as p:
-        pool_results = p.map(parallelfunc, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+        pool_results = p.map(parallelfunc, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]) 
     end = datetime.utcnow()
     sim_time = end - start
     print(f"Simualtion utc time:\n{sim_time}")

@@ -179,7 +179,7 @@ def repeat_func(times, start_state, LHS, stoch_rate, state_change_array): # chan
     return i
 
 
-repeat_func(10, start_state, LHS, stoch_rate, state_change_array)
+repeat_func(50, start_state, LHS, stoch_rate, state_change_array)
 
 print("Sequential Simualtion\nSystem 1")
 
